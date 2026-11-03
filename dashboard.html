@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OANDA MCP Dashboard</title>
+<style>
+  :root {
+    --bg:#0d1117; --surface:#161b22; --border:#30363d;
+    --text:#e6edf3; --muted:#7d8590; --accent:#58a6ff;
+    --green:#3fb950; --red:#f85149; --yellow:#d29922; --purple:#a371f7;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
+
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+  header h1{font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px;}
+  .env-badge{font-size:11px;padding:2px 8px;border-radius:12px;font-weight:600;}
+  .env-practice{background:#1f4a1f;color:var(--green);border:1px solid var(--green);}
+  .env-live{background:#4a1f1f;color:var(--red);border:1px solid var(--red);}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;box-shadow:0 0 6px var(--green);}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  nav{display:flex;gap:4px;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;}
+  nav button{background:none;border:none;color:var(--muted);padding:12px 16px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+  main{padding:24px;max-width:1400px;margin:0 auto;}
+
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:24px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;}
+  .stat-card .label{color:var(--muted);font-size:12px;margin-bottom:6px;}
+  .stat-card .value{font-size:26px;font-weight:700;}
+  .v-green{color:var(--green);} .v-red{color:var(--red);} .v-blue{color:var(--accent);} .v-yellow{color:var(--yellow);} .v-purple{color:var(--purple);}
+
+  .account-bar{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 20px;margin-bottom:24px;display:flex;gap:32px;flex-wrap:wrap;align-items:center;}
+  .ab-item{display:flex;flex-direction:column;gap:2px;}
+  .ab-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+  .ab-value{font-size:16px;font-weight:700;}
+
+  .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .section-header h2{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .controls input,.controls select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px;}
+  .btn{background:var(--accent);color:#000;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;}
+  .btn:hover{opacity:.85;}
+  .btn.secondary{background:var(--surface);color:var(--text);border:1px solid var(--border);}
+
+  .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:24px;}
+  table{width:100%;border-collapse:collapse;}
+  th{background:var(--surface);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
+  td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:rgba(255,255,255,.02);}
+
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+  .bg{background:#1f4a1f;color:var(--green);} .br{background:#4a1f1f;color:var(--red);}
+  .by{background:#3d2e00;color:var(--yellow);} .bb{background:#1a2e4a;color:var(--accent);}
+  .bp{background:#2a1f4a;color:var(--purple);}
+
+  .pl-pos{color:var(--green);font-weight:700;} .pl-neg{color:var(--red);font-weight:700;} .pl-zero{color:var(--muted);}
+
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .subtabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border);}
+  .subtab{background:none;border:none;color:var(--muted);padding:8px 18px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .subtab:hover{color:var(--text);}
+  .subtab.active{color:var(--green);border-bottom-color:var(--green);font-weight:600;}
+  .subpanel{display:none;} .subpanel.active{display:block;}
+
+  /* Price cards */
+  .price-group-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:12px;font-weight:600;}
+  .price-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:12px;margin-bottom:8px;}
+  .price-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;transition:border-color .3s,box-shadow .3s;}
+  .price-card.flash-up{border-color:var(--green);box-shadow:0 0 8px rgba(63,185,80,.35);}
+  .price-card.flash-down{border-color:var(--red);box-shadow:0 0 8px rgba(248,81,73,.35);}
+  .pc-name{font-size:11px;color:var(--muted);margin-bottom:4px;}
+  .pc-bid{font-size:20px;font-weight:700;line-height:1.2;}
+  .pc-ask{font-size:12px;color:var(--muted);margin-top:2px;}
+  .pc-change{font-size:12px;font-weight:600;margin-top:6px;}
+  .pc-time{font-size:10px;color:var(--muted);margin-top:4px;}
+  .stream-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
+  .sd-ok{background:var(--green);box-shadow:0 0 5px var(--green);}
+  .sd-err{background:var(--red);}
+  .sd-wait{background:var(--yellow);animation:pulse 1s infinite;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;max-width:700px;width:95%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;}
+  .modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-body{overflow-y:auto;padding:20px;}
+  .modal pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px;font-size:12px;white-space:pre-wrap;word-break:break-all;}
+  .close-btn{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;}
+
+  .empty{text-align:center;color:var(--muted);padding:40px;}
+  .loading{text-align:center;color:var(--muted);padding:30px;}
+  .err-box{background:#4a1f1f;border:1px solid var(--red);color:var(--red);padding:12px 16px;border-radius:8px;margin-bottom:16px;}
+  .refresh-info{font-size:12px;color:var(--muted);}
+  .countdown{font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);padding:3px 8px;border-radius:10px;}
+  .jbtn{background:none;border:1px solid var(--border);color:var(--muted);padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px;}
+  .jbtn:hover{color:var(--text);}
+  .account-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
+  .account-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .account-item .k{color:var(--muted);font-size:12px;margin-bottom:4px;}
+  .account-item .v{font-size:16px;font-weight:700;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>
+    <span class="status-dot" id="statusDot"></span>
+    OANDA MCP Dashboard
+    <span class="env-badge" id="envBadge">...</span>
+  </h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="countdown" id="countdown">↻ 30s</span>
+    <span class="refresh-info" id="lastRefresh">—</span>
+    <button class="btn secondary" onclick="refreshAll()">↻ Refresh</button>
+  </div>
+</header>
+
+<nav id="mainNav">
+  <button class="active" onclick="showTab('overview',this)">Overview</button>
+  <button onclick="showTab('trades',this)">Trades</button>
+  <button onclick="showTab('orders',this)">Orders</button>
+  <button onclick="showTab('errors',this)">Errors</button>
+  <button onclick="showTab('requests',this)">Requests</button>
+  <button onclick="showTab('account',this)">Account</button>
+  <button onclick="showTab('prices',this)">📈 Prices</button>
+</nav>
+
+<main>
+
+<!-- ══ OVERVIEW ══ -->
+<div id="tab-overview" class="tab-panel active">
+  <div class="account-bar">
+    <div class="ab-item"><div class="ab-label">Balance</div><div class="ab-value" id="ab-balance">…</div></div>
+    <div class="ab-item"><div class="ab-label">NAV</div><div class="ab-value" id="ab-nav">…</div></div>
+    <div class="ab-item"><div class="ab-label">Unrealized P&L</div><div class="ab-value" id="ab-upl">…</div></div>
+    <div class="ab-item"><div class="ab-label">Used Margin</div><div class="ab-value" id="ab-margin">…</div></div>
+    <div class="ab-item"><div class="ab-label">Free Margin</div><div class="ab-value" id="ab-free">…</div></div>
+    <div class="ab-item"><div class="ab-label">Positions</div><div class="ab-value" id="ab-pos">…</div></div>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="label">Total Requests</div><div class="value v-blue" id="s-requests">…</div></div>
+    <div class="stat-card"><div class="label">Total Orders</div><div class="value v-blue" id="s-orders">…</div></div>
+    <div class="stat-card"><div class="label">FILLED Orders</div><div class="value v-green" id="s-filled">…</div></div>
+    <div class="stat-card"><div class="label">REJECTED Orders</div><div class="value v-red" id="s-rejected">…</div></div>
+    <div class="stat-card"><div class="label">Closed Trades</div><div class="value v-purple" id="s-trades">…</div></div>
+    <div class="stat-card"><div class="label">Errors</div><div class="value v-yellow" id="s-errors">…</div></div>
+  </div>
+  <div class="section-header"><h2><span class="live-dot"></span> Open Positions</h2></div>
+  <div class="table-wrap" id="overviewPositions"><div class="loading">Loading…</div></div>
+  <div class="section-header"><h2>Latest Orders</h2></div>
+  <div class="table-wrap" id="overviewOrders"><div class="loading">Loading…</div></div>
+  <div class="section-header"><h2>Latest Errors</h2></div>
+  <div class="table-wrap" id="overviewErrors"><div class="loading">Loading…</div></div>
+</div>
+
+<!-- ══ TRADES ══ -->
+<div id="tab-trades" class="tab-panel">
+  <div class="subtabs">
+    <button class="subtab active" onclick="showSub('trades-open',this)">🟢 Open on OANDA</button>
+    <button class="subtab" onclick="showSub('trades-closed',this)">📋 Closed (DB)</button>
+  </div>
+  <div id="sub-trades-open" class="subpanel active">
+    <div class="section-header">
+      <h2><span class="live-dot"></span> Real-time Open Trades</h2>
+      <span class="refresh-info" id="tradesLiveRefresh"></span>
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+      <div class="stat-card" style="min-width:180px"><div class="label">Total Unrealized P&L</div><div class="value" id="live-total-upl">…</div></div>
+      <div class="stat-card" style="min-width:180px"><div class="label">Open Trades</div><div class="value v-blue" id="live-trade-count">…</div></div>
+      <div class="stat-card" style="min-width:180px"><div class="label">Used Margin</div><div class="value v-yellow" id="live-margin">…</div></div>
+    </div>
+    <div class="table-wrap" id="openTradesTable"><div class="loading">Loading…</div></div>
+  </div>
+  <div id="sub-trades-closed" class="subpanel">
+    <div class="section-header">
+      <h2>Closed Trades History</h2>
+      <div class="controls">
+        <select id="trdLimit"><option>50</option><option>100</option><option>200</option></select>
+        <button class="btn" onclick="loadClosedTrades()">Load</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+      <div class="stat-card" style="min-width:180px"><div class="label">Total Realized P&L</div><div class="value" id="closed-total-pl">…</div></div>
+      <div class="stat-card" style="min-width:180px"><div class="label">Closed Trades</div><div class="value v-purple" id="closed-trade-count">…</div></div>
+    </div>
+    <div class="table-wrap" id="closedTradesTable"><div class="loading">Loading…</div></div>
+  </div>
+</div>
+
+<!-- ══ ORDERS ══ -->
+<div id="tab-orders" class="tab-panel">
+  <div class="section-header">
+    <h2>Orders History</h2>
+    <div class="controls">
+      <input type="text" id="ordInstrument" placeholder="EUR_USD" style="width:140px">
+      <select id="ordLimit"><option>50</option><option>100</option><option>200</option></select>
+      <button class="btn" onclick="loadOrders()">Search</button>
+    </div>
+  </div>
+  <div class="table-wrap" id="ordersTable"><div class="loading">Loading…</div></div>
+</div>
+
+<!-- ══ ERRORS ══ -->
+<div id="tab-errors" class="tab-panel">
+  <div class="section-header">
+    <h2>Errors and Rejections</h2>
+    <div class="controls">
+      <select id="errLimit"><option>50</option><option>100</option></select>
+      <button class="btn" onclick="loadErrors()">Load</button>
+    </div>
+  </div>
+  <div class="table-wrap" id="errorsTable"><div class="loading">Loading…</div></div>
+</div>
+
+<!-- ══ REQUESTS ══ -->
+<div id="tab-requests" class="tab-panel">
+  <div class="section-header">
+    <h2>Request Log</h2>
+    <div class="controls">
+      <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">
+        <input type="checkbox" id="onlyErrors" onchange="loadRequests()"> Errors Only
+      </label>
+      <select id="reqLimit"><option>50</option><option>100</option><option>200</option></select>
+      <button class="btn" onclick="loadRequests()">Load</button>
+    </div>
+  </div>
+  <div class="table-wrap" id="requestsTable"><div class="loading">Loading…</div></div>
+</div>
+
+<!-- ══ ACCOUNT ══ -->
+<div id="tab-account" class="tab-panel">
+  <div class="section-header">
+    <h2>Account Information</h2>
+    <button class="btn secondary" onclick="loadAccount()">↻ Refresh</button>
+  </div>
+  <div id="accountPanel"><div class="loading">Loading…</div></div>
+</div>
+
+<!-- ══ PRICES ══ -->
+<div id="tab-prices" class="tab-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="stream-dot sd-wait" id="streamDot"></span>
+      <span style="font-size:13px;color:var(--muted)" id="streamStatus">Not Connected</span>
+      <span style="font-size:12px;color:var(--muted)" id="tickCount"></span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn secondary" onclick="reconnectStream()">↻ Reconnect</button>
+      <button class="btn secondary" id="toggleBtn" onclick="toggleStream()">⏸ Pause</button>
+    </div>
+  </div>
+
+  <div class="price-group-label">FX Majors</div>
+  <div class="price-cards" id="cards-fx"></div>
+
+  <div class="price-group-label" style="margin-top:24px">Metals</div>
+  <div class="price-cards" id="cards-metals"></div>
+
+  <div class="price-group-label" style="margin-top:24px">Energy</div>
+  <div class="price-cards" id="cards-energy"></div>
+
+  <div class="price-group-label" style="margin-top:24px">Indices</div>
+  <div class="price-cards" id="cards-indices"></div>
+
+  <div class="section-header" style="margin-top:32px">
+    <h2>Full Table</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Instrument</th><th>Name</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Change</th><th>% Change</th><th>Updated</th></tr></thead>
+      <tbody id="priceTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="jsonModal" onclick="if(event.target.id==='jsonModal')closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <span style="font-weight:600">OANDA Detail</span>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body"><pre id="modalContent"></pre></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// CONFIGURATION
+// ══════════════════════════════════════════════
+const GROUPS = {
+  fx: [
+    {id:'EUR_USD',name:'EUR/USD'},{id:'GBP_USD',name:'GBP/USD'},{id:'USD_JPY',name:'USD/JPY'},
+    {id:'AUD_USD',name:'AUD/USD'},{id:'USD_CAD',name:'USD/CAD'},{id:'USD_CHF',name:'USD/CHF'},
+    {id:'NZD_USD',name:'NZD/USD'}
+  ],
+  metals: [
+    {id:'XAU_USD',name:'Gold/USD'},{id:'XAG_USD',name:'Silver/USD'},{id:'XPT_USD',name:'Platinum/USD'}
+  ],
+  energy: [
+    {id:'WTICO_USD',name:'WTI Oil'},{id:'BCO_USD',name:'Brent Oil'},{id:'NATGAS_USD',name:'Nat.Gas'}
+  ],
+  indices: [
+    {id:'US30_USD',name:'Wall St 30'},{id:'SPX500_USD',name:'S&P 500'},
+    {id:'NAS100_USD',name:'Nasdaq 100'},{id:'DE30_EUR',name:'DAX 30'}
+  ]
+};
+const ALL_INST = Object.values(GROUPS).flat();
+const NAME_MAP = Object.fromEntries(ALL_INST.map(i=>[i.id,i.name]));
+
+// ══════════════════════════════════════════════
+// GLOBAL STATE
+// ══════════════════════════════════════════════
+let activeTab    = 'overview';
+let activeSub    = 'trades-open';
+let countdownVal = 30;
+let currentES    = null;
+let streamPaused = false;
+let totalTicks   = 0;
+const priceState = {};
+
+// ══════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#mainNav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  activeTab = name;
+  if (name === 'orders')   loadOrders();
+  if (name === 'errors')   loadErrors();
+  if (name === 'requests') loadRequests();
+  if (name === 'account')  loadAccount();
+  if (name === 'trades')   loadOpenTrades();
+  if (name === 'prices')   { initPriceCards(); if (!currentES && !streamPaused) connectStream(); }
+}
+
+function showSub(name, btn) {
+  const parent = btn.closest('.tab-panel');
+  parent.querySelectorAll('.subtab').forEach(b => b.classList.remove('active'));
+  parent.querySelectorAll('.subpanel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('sub-' + name).classList.add('active');
+  activeSub = name;
+  if (name === 'trades-closed') loadClosedTrades();
+  if (name === 'trades-open')   loadOpenTrades();
+}
+
+// ══════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function fmt(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString('en',{dateStyle:'short',timeStyle:'medium'});
+}
+
+function plFmt(val, cur='') {
+  const n = parseFloat(val);
+  if (isNaN(n)) return '<span class="pl-zero">—</span>';
+  const s = n>0?'+':'';
+  const c = n>0?'pl-pos':n<0?'pl-neg':'pl-zero';
+  return `<span class="${c}">${s}${n.toFixed(2)} ${cur}</span>`;
+}
+
+function sBadge(s) {
+  const m={FILLED:'bg',CREATED:'bb',REJECTED:'br',ERROR:'br',OPEN:'bg',CLOSED:'bp',CANCELLED:'by'};
+  return `<span class="badge ${m[s]||'by'}">${s||'—'}</span>`;
+}
+
+function mBadge(m) {
+  const c={GET:'bb',POST:'bg',DELETE:'br',PATCH:'by',PUT:'bp'};
+  return `<span class="badge ${c[m]||'bb'}">${m}</span>`;
+}
+
+function jBtn(data) {
+  const s = JSON.stringify(data);
+  return `<button class="jbtn" onclick='showJson(this)' data-json='${s.replace(/'/g,"&#39;")}'>{ }</button>`;
+}
+
+function showJson(btn) {
+  try {
+    document.getElementById('modalContent').textContent = JSON.stringify(JSON.parse(btn.dataset.json),null,2);
+    document.getElementById('jsonModal').classList.add('open');
+  } catch(e) { alert('Error al parsear JSON'); }
+}
+
+function closeModal() { document.getElementById('jsonModal').classList.remove('open'); }
+
+function setEl(id, html, isText=false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (isText) el.textContent = html;
+  else el.innerHTML = html;
+}
+
+function tableSet(id, html) {
+  setEl(id, html || '<div class="empty">Sin datos</div>');
+}
+
+// ══════════════════════════════════════════════
+// HEALTH
+// ══════════════════════════════════════════════
+async function loadHealth() {
+  try {
+    const h = await api('/health');
+    const env = h.environment || 'practice';
+    setEl('envBadge', env.toUpperCase(), true);
+    document.getElementById('envBadge').className = 'env-badge env-' + env;
+    document.getElementById('statusDot').style.background = h.status==='healthy' ? 'var(--green)' : 'var(--red)';
+  } catch(e) {
+    document.getElementById('statusDot').style.background = 'var(--red)';
+  }
+}
+
+// ══════════════════════════════════════════════
+// ACCOUNT BAR
+// ══════════════════════════════════════════════
+async function loadAccountBar() {
+  try {
+    const {account:a} = await api('/account');
+    setEl('ab-balance', `${parseFloat(a.balance||0).toFixed(2)} ${a.currency||''}`, true);
+    setEl('ab-nav',     `${parseFloat(a.NAV||0).toFixed(2)} ${a.currency||''}`, true);
+    setEl('ab-upl',     plFmt(a.unrealizedPL, a.currency||''));
+    setEl('ab-margin',  `${parseFloat(a.marginUsed||0).toFixed(2)} ${a.currency||''}`, true);
+    setEl('ab-free',    `${parseFloat(a.marginAvailable||0).toFixed(2)} ${a.currency||''}`, true);
+    setEl('ab-pos',     a.openPositionCount||'0', true);
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════
+// STATS
+// ══════════════════════════════════════════════
+async function loadStats() {
+  try {
+    const s = await api('/db/stats');
+    setEl('s-requests', s.total_requests??'—', true);
+    setEl('s-orders',   s.total_orders??'—', true);
+    setEl('s-filled',   s.filled_orders??'—', true);
+    setEl('s-rejected', s.rejected_orders??'—', true);
+    setEl('s-trades',   s.total_trades??'—', true);
+    setEl('s-errors',   s.total_errors??'—', true);
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════
+// OPEN POSITIONS (overview)
+// ══════════════════════════════════════════════
+async function loadOpenPositions() {
+  try {
+    const {positions:list=[]} = await api('/positions/open');
+    if (!list.length) { tableSet('overviewPositions','<div class="empty">No open positions</div>'); return; }
+    const html = `<table><thead><tr><th>Instrument</th><th>Direction</th><th>Units</th><th>Avg Price</th><th>Unrealized P&L</th><th>Realized P&L</th><th></th></tr></thead><tbody>
+    ${list.map(p=>{
+      const side = parseFloat(p.long?.units||0)!==0?'long':'short';
+      const d    = side==='long'?p.long:p.short;
+      return `<tr>
+        <td style="font-weight:700">${p.instrument}</td>
+        <td><span class="badge ${side==='long'?'bg':'br'}">${side.toUpperCase()}</span></td>
+        <td>${d?.units||'—'}</td><td>${d?.averagePrice||'—'}</td>
+        <td>${plFmt(p.unrealizedPL)}</td><td>${plFmt(p.pl)}</td>
+        <td>${jBtn(p)}</td></tr>`;
+    }).join('')}</tbody></table>`;
+    tableSet('overviewPositions', html);
+  } catch(e) { tableSet('overviewPositions',`<div class="err-box">${e.message}</div>`); }
+}
+
+// ══════════════════════════════════════════════
+// OPEN TRADES (live)
+// ══════════════════════════════════════════════
+async function loadOpenTrades() {
+  setEl('tradesLiveRefresh','Updating…',true);
+  try {
+    const [{trades:list=[]},{account:a={}}] = await Promise.all([api('/trades/open'),api('/account')]);
+    const cur = a.currency||'';
+    const totalUPL = list.reduce((s,t)=>s+parseFloat(t.unrealizedPL||0),0);
+    const uplEl = document.getElementById('live-total-upl');
+    if (uplEl) { uplEl.textContent=`${totalUPL>=0?'+':''}${totalUPL.toFixed(2)} ${cur}`; uplEl.className='value '+(totalUPL>0?'v-green':totalUPL<0?'v-red':'v-yellow'); }
+    setEl('live-trade-count', list.length, true);
+    setEl('live-margin', `${parseFloat(a.marginUsed||0).toFixed(2)} ${cur}`, true);
+
+    if (!list.length) { tableSet('openTradesTable','<div class="empty">No open trades</div>'); }
+    else {
+      const html=`<table><thead><tr><th>ID</th><th>Instrument</th><th>Dir.</th><th>Units</th><th>Entry</th><th>Unrealized P&L</th><th>SL</th><th>TP</th><th>Trailing</th><th>Opened</th><th></th></tr></thead><tbody>
+      ${list.map(t=>{
+        const side=parseInt(t.currentUnits||0)>0?'long':'short';
+        return `<tr>
+          <td style="font-family:monospace;font-size:11px;color:var(--muted)">${t.id}</td>
+          <td style="font-weight:700">${t.instrument}</td>
+          <td><span class="badge ${side==='long'?'bg':'br'}">${side.toUpperCase()}</span></td>
+          <td>${t.currentUnits}</td><td>${t.price}</td>
+          <td>${plFmt(t.unrealizedPL,cur)}</td>
+          <td style="color:var(--red)">${t.stopLossOrder?.price||'—'}</td>
+          <td style="color:var(--green)">${t.takeProfitOrder?.price||'—'}</td>
+          <td style="color:var(--yellow)">${t.trailingStopLossOrder?.distance||'—'}</td>
+          <td style="color:var(--muted);font-size:11px">${fmt(t.openTime)}</td>
+          <td>${jBtn(t)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+      tableSet('openTradesTable', html);
+    }
+    setEl('tradesLiveRefresh','Updated: '+new Date().toLocaleTimeString('en'),true);
+  } catch(e) { tableSet('openTradesTable',`<div class="err-box">${e.message}</div>`); }
+}
+
+// ══════════════════════════════════════════════
+// CLOSED TRADES (DB)
+// ══════════════════════════════════════════════
+async function loadClosedTrades() {
+  const limit = document.getElementById('trdLimit')?.value||50;
+  tableSet('closedTradesTable','<div class="loading">Loading…</div>');
+  try {
+    const rows = await api(`/db/trades?limit=${limit}`);
+    const total = rows.reduce((s,r)=>s+parseFloat(r.realized_pl||0),0);
+    const plEl = document.getElementById('closed-total-pl');
+    if (plEl){plEl.textContent=`${total>=0?'+':''}${total.toFixed(2)}`;plEl.className='value '+(total>0?'v-green':total<0?'v-red':'v-yellow');}
+    setEl('closed-trade-count',rows.length,true);
+    if (!rows.length){tableSet('closedTradesTable',null);return;}
+    const html=`<table><thead><tr><th>Date</th><th>Trade ID</th><th>Instrument</th><th>Action</th><th>Units</th><th>Price</th><th>Realized P&L</th><th></th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td style="color:var(--muted)">${fmt(r.created_at)}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--muted)">${r.trade_id||'—'}</td>
+      <td style="font-weight:700">${r.instrument||'—'}</td>
+      <td><span class="badge bp">${r.action||'—'}</span></td>
+      <td>${r.units||'—'}</td><td>${r.price||'—'}</td>
+      <td>${plFmt(r.realized_pl)}</td>
+      <td>${r.raw_response?jBtn(r.raw_response):'—'}</td></tr>`).join('')}
+    </tbody></table>`;
+    tableSet('closedTradesTable',html);
+  } catch(e){tableSet('closedTradesTable',`<div class="err-box">${e.message}</div>`);}
+}
+
+// ══════════════════════════════════════════════
+// ORDERS
+// ══════════════════════════════════════════════
+function ordersHtml(rows){
+  return `<table><thead><tr><th>Date</th><th>Type</th><th>Instrument</th><th>Units</th><th>Price</th><th>SL</th><th>TP</th><th>Status</th><th>Trade ID</th><th></th></tr></thead><tbody>
+  ${rows.map(r=>`<tr>
+    <td style="color:var(--muted)">${fmt(r.created_at)}</td>
+    <td><span class="badge bb">${r.order_type||'—'}</span></td>
+    <td style="font-weight:600">${r.instrument||'—'}</td>
+    <td style="color:${parseInt(r.units||0)>0?'var(--green)':'var(--red)'}">${r.units||'—'}</td>
+    <td>${r.price||'—'}</td>
+    <td style="color:var(--red)">${r.stop_loss||'—'}</td>
+    <td style="color:var(--green)">${r.take_profit||'—'}</td>
+    <td>${sBadge(r.status)}</td>
+    <td style="color:var(--muted);font-size:11px">${r.oanda_trade_id||'—'}</td>
+    <td>${r.raw_response?jBtn(r.raw_response):'—'}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function loadOrders(){
+  const instr=document.getElementById('ordInstrument')?.value.trim()||'';
+  const limit=document.getElementById('ordLimit')?.value||50;
+  tableSet('ordersTable','<div class="loading">Loading…</div>');
+  try{const rows=await api(`/db/orders?limit=${limit}${instr?'&instrument='+instr:''}`);tableSet('ordersTable',rows.length?ordersHtml(rows):null);}
+  catch(e){tableSet('ordersTable',`<div class="err-box">${e.message}</div>`);}
+}
+
+// ══════════════════════════════════════════════
+// ERRORS
+// ══════════════════════════════════════════════
+function errorsHtml(rows){
+  return `<table><thead><tr><th>Date</th><th>Method</th><th>Path</th><th>Error Code</th><th>Message</th><th>Reject Reason</th><th></th></tr></thead><tbody>
+  ${rows.map(r=>`<tr>
+    <td style="color:var(--muted)">${fmt(r.created_at)}</td>
+    <td>${mBadge(r.method)}</td>
+    <td style="font-family:monospace;font-size:12px">${r.path||'—'}</td>
+    <td><span class="badge br">${r.error_code||'—'}</span></td>
+    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.error_message||'—'}</td>
+    <td style="color:var(--yellow)">${r.reject_reason||'—'}</td>
+    <td>${r.raw_response?jBtn(r.raw_response):'—'}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function loadErrors(){
+  const limit=document.getElementById('errLimit')?.value||50;
+  tableSet('errorsTable','<div class="loading">Loading…</div>');
+  try{const rows=await api(`/db/errors?limit=${limit}`);tableSet('errorsTable',rows.length?errorsHtml(rows):null);}
+  catch(e){tableSet('errorsTable',`<div class="err-box">${e.message}</div>`);}
+}
+
+// ══════════════════════════════════════════════
+// REQUESTS
+// ══════════════════════════════════════════════
+async function loadRequests(){
+  const limit=document.getElementById('reqLimit')?.value||50;
+  const onlyErr=document.getElementById('onlyErrors')?.checked?'&only_errors=true':'';
+  tableSet('requestsTable','<div class="loading">Loading…</div>');
+  try{
+    const rows=await api(`/db/requests?limit=${limit}${onlyErr}`);
+    if(!rows.length){tableSet('requestsTable',null);return;}
+    const html=`<table><thead><tr><th>Date</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th><th>Error</th><th></th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td style="color:var(--muted)">${fmt(r.created_at)}</td>
+      <td>${mBadge(r.method)}</td>
+      <td style="font-family:monospace;font-size:12px">${r.path||'—'}</td>
+      <td><span class="badge ${r.status_code<400?'bg':'br'}">${r.status_code}</span></td>
+      <td style="color:var(--muted)">${r.duration_ms||'—'}</td>
+      <td style="color:var(--red);font-size:12px">${r.error_code||''}</td>
+      <td>${r.response_body?jBtn(r.response_body):'—'}</td></tr>`).join('')}
+    </tbody></table>`;
+    tableSet('requestsTable',html);
+  }catch(e){tableSet('requestsTable',`<div class="err-box">${e.message}</div>`);}
+}
+
+// ══════════════════════════════════════════════
+// ACCOUNT
+// ══════════════════════════════════════════════
+async function loadAccount(){
+  setEl('accountPanel','<div class="loading">Loading…</div>');
+  try{
+    const {account:a={}}=await api('/account');
+    const fields=[
+      ['ID',a.id],['Currency',a.currency],['Balance',a.balance],['NAV',a.NAV],
+      ['Unrealized P&L',a.unrealizedPL],['Realized P&L',a.pl],
+      ['Used Margin',a.marginUsed],['Available Margin',a.marginAvailable],
+      ['Margin Rate',a.marginRate],['Open Trades',a.openTradeCount],
+      ['Open Positions',a.openPositionCount],['Pending Orders',a.pendingOrderCount],
+      ['Alias',a.alias],['Hedging',a.hedgingEnabled?'ON':'OFF'],
+    ];
+    setEl('accountPanel',`<div class="account-grid">${fields.map(([k,v])=>`<div class="account-item"><div class="k">${k}</div><div class="v">${v??'—'}</div></div>`).join('')}</div>`);
+  }catch(e){setEl('accountPanel',`<div class="err-box">${e.message}</div>`);}
+}
+
+// ══════════════════════════════════════════════
+// PRICES — SSE STREAM
+// ══════════════════════════════════════════════
+function initPriceCards(){
+  for(const [gk,items] of Object.entries(GROUPS)){
+    const c=document.getElementById('cards-'+gk);
+    if(!c)continue;
+    c.innerHTML=items.map(i=>`
+      <div class="price-card" id="card-${i.id}">
+        <div class="pc-name">${i.name}</div>
+        <div class="pc-bid" id="bid-${i.id}">—</div>
+        <div class="pc-ask" id="ask-${i.id}" style="font-size:12px;color:var(--muted)">Ask: —</div>
+        <div id="spread-${i.id}" style="font-size:11px;color:var(--muted)">Spread: —</div>
+        <div class="pc-change" id="change-${i.id}">—</div>
+        <div class="pc-time" id="time-${i.id}">Sin datos</div>
+      </div>`).join('');
+  }
+  const tbody=document.getElementById('priceTableBody');
+  if(tbody) tbody.innerHTML=ALL_INST.map(i=>`
+    <tr id="row-${i.id}">
+      <td style="font-weight:700">${i.id.replace('_','/')}</td>
+      <td style="color:var(--muted)">${i.name}</td>
+      <td id="tbid-${i.id}">—</td><td id="task-${i.id}">—</td>
+      <td id="tspread-${i.id}" style="color:var(--muted)">—</td>
+      <td id="tchange-${i.id}">—</td><td id="tpct-${i.id}">—</td>
+      <td id="ttime-${i.id}" style="color:var(--muted);font-size:11px">—</td>
+    </tr>`).join('');
+}
+
+function updatePrice(tick){
+  const id  = tick.instrument;
+  const bid = parseFloat(tick.bids?.[0]?.price||0);
+  const ask = parseFloat(tick.asks?.[0]?.price||0);
+  const spd = ask - bid;
+  const t   = new Date(tick.time).toLocaleTimeString('es');
+  const dec = bid>100?2:bid>10?3:5;
+
+  const prev = priceState[id];
+  const dir  = prev?(bid>prev.bid?'up':bid<prev.bid?'down':'flat'):'flat';
+  if(!priceState[id]) priceState[id]={openBid:bid};
+  priceState[id].bid=bid; priceState[id].ask=ask;
+
+  const chg    = bid-(priceState[id].openBid||bid);
+  const chgPct = priceState[id].openBid?(chg/priceState[id].openBid*100):0;
+  const cc     = chg>0?'pl-pos':chg<0?'pl-neg':'pl-zero';
+  const cs     = chg>0?'+':'';
+
+  // Tarjeta
+  const card=document.getElementById('card-'+id);
+  if(card){
+    setEl('bid-'+id,   bid.toFixed(dec), true);
+    setEl('ask-'+id,   'Ask: '+ask.toFixed(dec), true);
+    setEl('spread-'+id,'Spread: '+spd.toFixed(dec), true);
+    setEl('change-'+id,`<span class="${cc}">${cs}${chg.toFixed(dec)} (${cs}${chgPct.toFixed(2)}%)</span>`);
+    setEl('time-'+id,  t, true);
+    card.classList.remove('flash-up','flash-down');
+    if(dir!=='flat'){ card.classList.add('flash-'+dir); setTimeout(()=>card.classList.remove('flash-up','flash-down'),600); }
+  }
+
+  // Tabla
+  [['tbid-'+id,bid.toFixed(dec)],['task-'+id,ask.toFixed(dec)],['tspread-'+id,spd.toFixed(dec)]].forEach(([el,v])=>setEl(el,v,true));
+  setEl('tchange-'+id,`<span class="${cc}">${cs}${chg.toFixed(dec)}</span>`);
+  setEl('tpct-'+id,   `<span class="${cc}">${cs}${chgPct.toFixed(2)}%</span>`);
+  setEl('ttime-'+id,  t, true);
+
+  totalTicks++;
+  setEl('tickCount', totalTicks+' ticks', true);
+}
+
+function setStreamStatus(state, msg){
+  const dot=document.getElementById('streamDot');
+  const lbl=document.getElementById('streamStatus');
+  if(dot){ dot.className='stream-dot '+(state==='ok'?'sd-ok':state==='err'?'sd-err':'sd-wait'); }
+  if(lbl) lbl.textContent=msg;
+}
+
+function connectStream(){
+  if(currentES){currentES.close();currentES=null;}
+  const ids=ALL_INST.map(i=>i.id).join(',');
+  setStreamStatus('wait','Conectando...');
+  const es=new EventSource(`/pricing/stream?instruments=${encodeURIComponent(ids)}&max_ticks=9999`);
+  currentES=es;
+  es.onopen =()=>setStreamStatus('ok','Stream activo');
+  es.onmessage=e=>{
+    if(streamPaused)return;
+    try{
+      const tick=JSON.parse(e.data);
+      const type=(tick.type||'').toUpperCase();
+      if(type==='PRICE')     updatePrice(tick);
+      if(type==='HEARTBEAT') setStreamStatus('ok','Heartbeat '+new Date().toLocaleTimeString('en'));
+      if(type==='ERROR')     setStreamStatus('err','OANDA Error: '+(tick.message||tick.errorMessage||''));
+      if(tick.type==='error') setStreamStatus('err','Server Error: '+tick.message);
+    }catch(err){ console.warn('Stream parse error:', err, e.data); }
+  };
+  es.onerror=()=>{
+    setStreamStatus('err','Disconnected — retrying in 5s...');
+    es.close(); currentES=null;
+    if(!streamPaused) setTimeout(connectStream, 5000);
+  };
+}
+
+function reconnectStream(){ streamPaused=false; setEl('toggleBtn','⏸ Pause',true); connectStream(); }
+
+function toggleStream(){
+  streamPaused=!streamPaused;
+  setEl('toggleBtn', streamPaused?'▶ Resume':'⏸ Pause', true);
+  if(streamPaused){ setStreamStatus('err','Paused'); if(currentES){currentES.close();currentES=null;} }
+  else connectStream();
+}
+
+// ══════════════════════════════════════════════
+// OVERVIEW
+// ══════════════════════════════════════════════
+async function loadOverview(){
+  await Promise.all([loadAccountBar(), loadStats(), loadOpenPositions()]);
+  try{ const rows=await api('/db/orders?limit=8'); tableSet('overviewOrders',rows.length?ordersHtml(rows):null); }
+  catch(e){ tableSet('overviewOrders',`<div class="err-box">${e.message}</div>`); }
+  try{ const rows=await api('/db/errors?limit=5'); tableSet('overviewErrors',rows.length?errorsHtml(rows):null); }
+  catch(e){ tableSet('overviewErrors',`<div class="err-box">${e.message}</div>`); }
+}
+
+// ══════════════════════════════════════════════
+// AUTO-REFRESH
+// ══════════════════════════════════════════════
+function tick(){
+  countdownVal--;
+  setEl('countdown','↻ '+countdownVal+'s',true);
+  if(countdownVal<=0){ countdownVal=30; refreshAll(); }
+}
+
+async function refreshAll(){
+  countdownVal=30;
+  await Promise.all([loadHealth(), loadOverview()]);
+  if(activeTab==='trades') loadOpenTrades();
+  setEl('lastRefresh','Updated: '+new Date().toLocaleTimeString('en'),true);
+}
+
+// ══════════════════════════════════════════════
+// INITIALIZATION
+// ══════════════════════════════════════════════
+refreshAll();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
