@@ -224,7 +224,7 @@ async def async_noop():
     return None
 
 
-class TestContextManager:
+class AsyncContextManager:
     """Context manager for test setup/teardown"""
 
     def __init__(self):
