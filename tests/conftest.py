@@ -563,14 +563,23 @@ def app_fixture_with_mocks():
         server.circuit_breaker.get_state = MagicMock(return_value=MagicMock(value="CLOSED"))
         server.circuit_breaker.get_metrics = MagicMock(return_value={"state": "CLOSED", "failures": 0})
 
-        # Setup mock db_pool as None (so logging skips database operations in tests)
-        server.db_pool = None
+        # Setup mock db_pool for database endpoints
+        mock_db_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_db_pool.acquire = MagicMock()
+        mock_db_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_db_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_conn.execute = AsyncMock(return_value=None)
+        mock_conn.fetch = AsyncMock(return_value=[])
+        mock_conn.fetchval = AsyncMock(return_value=0)
+
+        server.db_pool = mock_db_pool
 
         result = {
             'app': server.app,
             'mock_oanda_client': mock_oanda_client,
             'mock_circuit_breaker': server.circuit_breaker,
-            'mock_pool': server.db_pool,
+            'mock_pool': mock_db_pool,
         }
 
         yield result
