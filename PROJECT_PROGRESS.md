@@ -15,9 +15,9 @@
 | Code cleanup (i18n English) | Code-Cleaner | COMPLETE | 100% | 2026-11-03 | 2026-11-03 | None | All Spanish → English ✓ Commit: 0527d6e |
 | GitHub setup (CI/CD) | GitHub Setup | COMPLETE | 100% | 2026-11-03 | 2026-11-03 | None | CI/CD ready ✓ Commit: e7f83ec |
 | Testing framework | Testing & CI | COMPLETE | 100% | 2026-11-03 | 2026-11-03 | None | 137 tests, 80%+ coverage ✓ |
-| Rate limiting | Rate Limiter | IN_PROGRESS | 10% | 2026-11-03 | TBD | None | Running (ETA: +3-4 hrs) |
-| Input validation | Validator | IN_PROGRESS | 10% | 2026-11-03 | TBD | None | Running (ETA: +4-5 hrs) |
-| Circuit breaker | Circuit Breaker | IN_PROGRESS | 10% | 2026-11-03 | TBD | None | Running (ETA: +5-6 hrs) |
+| Rate limiting | Rate Limiter | IN_PROGRESS | 20% | 2026-11-03 | TBD | None | Implementing (ETA: +3-4 hrs) |
+| Input validation | Validator | IN_PROGRESS | 20% | 2026-11-03 | TBD | None | Implementing (ETA: +4-5 hrs) |
+| Circuit breaker | Circuit Breaker | IN_PROGRESS | 20% | 2026-11-03 | TBD | None | Implementing (ETA: +5-6 hrs) |
 
 ---
 
