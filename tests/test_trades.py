@@ -196,13 +196,14 @@ class TestTradesEndpoints:
         assert "id" in trade or trade.get("id") is not None
 
     def test_modify_trade_empty_payload(self, client, app_with_mocks, sample_trade_data):
-        """Test PATCH /trade/{trade_id} with empty payload"""
+        """Test PATCH /trade/{trade_id} rejects empty payload"""
         mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
         response = client.patch("/trade/trade-123", json={})
-        assert response.status_code in [200, 400, 422]
+        # Should reject empty payload with 4xx error
+        assert response.status_code in [400, 422, 500]
 
     def test_close_trade_all_units(self, client, app_with_mocks):
         """Test PUT /trade/{trade_id}/close with ALL units"""

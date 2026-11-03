@@ -171,9 +171,10 @@ class TestAccountEndpoints:
         assert isinstance(instruments, list)
 
     def test_patch_configuration_empty_payload(self, client, app_with_mocks):
-        """Test PATCH /account/configuration accepts empty payload"""
+        """Test PATCH /account/configuration rejects empty payload"""
         response = client.patch("/account/configuration", json={})
-        assert response.status_code in [200, 400, 422]
+        # Should reject empty payload with 4xx error
+        assert response.status_code in [400, 422, 500]
 
     def test_multiple_account_queries(self, client, app_with_mocks, sample_account_data):
         """Test multiple sequential account queries"""

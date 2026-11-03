@@ -45,7 +45,7 @@ class TestPricingEndpoints:
 
         mock_client.request.return_value = sample_pricing_data
 
-        response = client.get("/pricing")
+        response = client.get("/pricing?instruments=EUR_USD,GBP_USD")
         assert response.status_code == 200
         data = response.json()
         assert "prices" in data or isinstance(data, list)
@@ -65,7 +65,7 @@ class TestPricingEndpoints:
 
         mock_client.request.return_value = sample_pricing_data
 
-        response = client.get("/pricing")
+        response = client.get("/pricing?instruments=EUR_USD")
         assert "application/json" in response.headers["content-type"]
 
     def test_get_price_returns_bid_ask(self, client, app_with_mocks):
@@ -96,7 +96,7 @@ class TestPricingEndpoints:
         mock_client.request.return_value = sample_pricing_data
 
         for _ in range(3):
-            response = client.get("/pricing")
+            response = client.get("/pricing?instruments=EUR_USD,GBP_USD")
             assert response.status_code == 200
 
     def test_price_endpoint_single_instrument(self, client, app_with_mocks):
