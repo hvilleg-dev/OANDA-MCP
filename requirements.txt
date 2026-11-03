@@ -1,6 +1,8 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-oandapyv20==0.6.3
-python-dotenv==1.0.0
-requests
-six
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+oandapyV20==0.7.2
+asyncpg==0.29.0
+python-dotenv==1.0.1
+requests==2.31.0
+six==1.16.0
+httpx==0.27.0
