@@ -2,32 +2,12 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
-import asyncio
-from datetime import datetime
 
 
 @pytest.fixture
-def app_with_mocks():
-    """Fixture to create FastAPI app with mocked dependencies"""
-    with patch.dict('os.environ', {
-        'OANDA_API_KEY': 'test-key',
-        'OANDA_ACCOUNT_ID': '123456',
-        'OANDA_ENVIRONMENT': 'practice',
-        'DATABASE_URL': 'postgresql://test:test@localhost/test_db'
-    }):
-        # Mock the database pool
-        with patch('server.db_pool', new_callable=AsyncMock) as mock_pool:
-            # Import after patching environment
-            from server import app
-            yield app, mock_pool
-
-
-@pytest.fixture
-def client(app_with_mocks):
+def client(app_fixture_with_mocks):
     """FastAPI test client"""
-    app, _ = app_with_mocks
-    return TestClient(app)
+    return TestClient(app_fixture_with_mocks['app'])
 
 
 class TestHealthEndpoints:
@@ -39,7 +19,7 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "status" in data
-        assert data["status"] == "ok"
+        assert data["status"] == "healthy"
         assert "message" in data
 
     def test_root_endpoint_response_format(self, client):
@@ -70,6 +50,7 @@ class TestHealthEndpoints:
         # Check structure
         assert isinstance(data, dict)
         assert "status" in data
+        assert "circuit_breaker_state" in data
         assert "environment" in data or "mode" in data
 
     def test_health_endpoint_includes_environment_info(self, client):

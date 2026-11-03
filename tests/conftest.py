@@ -13,6 +13,10 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Clean server module from cache
+if 'server' in sys.modules:
+    del sys.modules['server']
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -478,8 +482,80 @@ def mock_v20_error():
 @pytest.fixture(autouse=True)
 def reset_modules():
     """Reset modules before each test to ensure clean imports"""
+    # Clean up before test
+    modules_to_remove = [mod for mod in sys.modules if 'server' in mod]
+    for mod in modules_to_remove:
+        sys.modules.pop(mod, None)
+
     yield
+
     # Clean up after test
     modules_to_remove = [mod for mod in sys.modules if 'server' in mod]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
+
+
+@pytest.fixture(scope="function")
+def app_fixture_with_mocks():
+    """Global fixture with mocked server components"""
+    # Patch environment variables
+    env_patch = patch.dict('os.environ', {
+        'OANDA_API_KEY': 'test-key',
+        'OANDA_ACCOUNT_ID': '123456',
+        'OANDA_ENVIRONMENT': 'practice',
+        'CIRCUIT_BREAKER_THRESHOLD': '5',
+        'CIRCUIT_BREAKER_TIMEOUT': '60',
+        'CIRCUIT_BREAKER_BACKOFF_MULTIPLIER': '100',
+        'DATABASE_URL': 'postgresql://test:test@localhost/test_db'
+    })
+
+    env_patch.start()
+
+    try:
+        # Patch before importing server
+        oanda_patcher = patch('oandapyV20.API')
+        mock_api_class = oanda_patcher.start()
+
+        # Create mock instances
+        mock_oanda_client = MagicMock()
+        mock_stream_client = MagicMock()
+        mock_api_class.side_effect = [mock_oanda_client, mock_stream_client]
+
+        # Setup OANDA client mock - request should populate endpoint.response
+        def mock_request(endpoint):
+            """Mock request that populates endpoint.response"""
+            endpoint.response = {
+                "account": {
+                    "id": "123456",
+                    "currency": "USD",
+                    "balance": "50000.00",
+                }
+            }
+            return endpoint
+
+        mock_oanda_client.request = MagicMock(side_effect=mock_request)
+        mock_stream_client.request = MagicMock(side_effect=mock_request)
+
+        # Now import server
+        import server
+
+        # Patch circuit breaker call to actually execute the function
+        async def mock_call(func, *args, **kwargs):
+            """Mock circuit breaker that just calls the function directly"""
+            result = func(*args, **kwargs)
+            return result
+
+        server.circuit_breaker.call = AsyncMock(side_effect=mock_call)
+        server.circuit_breaker.get_state = MagicMock(return_value=MagicMock(value="CLOSED"))
+        server.circuit_breaker.get_metrics = MagicMock(return_value={"state": "CLOSED", "failures": 0})
+
+        yield {
+            'app': server.app,
+            'mock_oanda_client': mock_oanda_client,
+            'mock_circuit_breaker': server.circuit_breaker,
+            'mock_pool': server.db_pool,
+        }
+
+    finally:
+        oanda_patcher.stop()
+        env_patch.stop()
