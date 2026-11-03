@@ -7,34 +7,15 @@ import json
 
 
 @pytest.fixture
-def app_with_mocks():
-    """Fixture to create FastAPI app with mocked dependencies"""
-    with patch.dict('os.environ', {
-        'OANDA_API_KEY': 'test-key',
-        'OANDA_ACCOUNT_ID': '123456',
-        'OANDA_ENVIRONMENT': 'practice',
-        'DATABASE_URL': 'postgresql://test:test@localhost/test_db'
-    }):
-        with patch('server.oanda_client') as mock_client, \
-             patch('server.db_pool', new_callable=AsyncMock) as mock_pool, \
-             patch('server.stream_client'):
-
-            # Setup mock pool
-            mock_conn = AsyncMock()
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
-            mock_conn.execute = AsyncMock()
-
-            from server import app
-            yield app, mock_client, mock_pool
+def app_with_mocks(app_fixture_with_mocks):
+    """Adapter fixture for backward compatibility"""
+    return app_fixture_with_mocks
 
 
 @pytest.fixture
 def client(app_with_mocks):
     """FastAPI test client"""
-    app, _, _ = app_with_mocks
-    return TestClient(app)
+    return TestClient(app_with_mocks['app'])
 
 
 class TestTradesEndpoints:
@@ -42,7 +23,7 @@ class TestTradesEndpoints:
 
     def test_get_trades_success(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades returns list of trades"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -53,7 +34,7 @@ class TestTradesEndpoints:
 
     def test_get_open_trades_success(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades/open returns open trades"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -64,7 +45,7 @@ class TestTradesEndpoints:
 
     def test_get_trade_details_success(self, client, app_with_mocks, sample_trade_data):
         """Test GET /trade/{trade_id} returns trade details"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -75,7 +56,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_stop_loss_success(self, client, app_with_mocks, sample_trade_data):
         """Test PATCH /trade/{trade_id} modifies stop loss"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -88,7 +69,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_take_profit_success(self, client, app_with_mocks, sample_trade_data):
         """Test PATCH /trade/{trade_id} modifies take profit"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -101,7 +82,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_trailing_stop_success(self, client, app_with_mocks, sample_trade_data):
         """Test PATCH /trade/{trade_id} modifies trailing stop"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -114,7 +95,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_multiple_fields(self, client, app_with_mocks, sample_trade_data):
         """Test PATCH /trade/{trade_id} modifies multiple fields"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -129,7 +110,7 @@ class TestTradesEndpoints:
 
     def test_close_trade_full_success(self, client, app_with_mocks):
         """Test PUT /trade/{trade_id}/close closes trade fully"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "orderCreateTransaction": {
@@ -149,7 +130,7 @@ class TestTradesEndpoints:
 
     def test_close_trade_partial_units(self, client, app_with_mocks):
         """Test PUT /trade/{trade_id}/close closes partial units"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "orderCreateTransaction": {
@@ -171,7 +152,7 @@ class TestTradesEndpoints:
 
     def test_get_trades_with_state_filter(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades with state parameter"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -180,7 +161,7 @@ class TestTradesEndpoints:
 
     def test_get_trades_returns_list(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades returns list of trades"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -192,7 +173,7 @@ class TestTradesEndpoints:
 
     def test_get_open_trades_returns_list(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades/open returns list"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -204,7 +185,7 @@ class TestTradesEndpoints:
 
     def test_get_trade_details_contains_id(self, client, app_with_mocks, sample_trade_data):
         """Test trade details contains ID"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -216,7 +197,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_empty_payload(self, client, app_with_mocks, sample_trade_data):
         """Test PATCH /trade/{trade_id} with empty payload"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -225,7 +206,7 @@ class TestTradesEndpoints:
 
     def test_close_trade_all_units(self, client, app_with_mocks):
         """Test PUT /trade/{trade_id}/close with ALL units"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "orderCreateTransaction": {},
@@ -242,7 +223,7 @@ class TestTradesEndpoints:
 
     def test_trades_endpoints_return_json(self, client, app_with_mocks, sample_open_trades):
         """Test trades endpoints return JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 
@@ -251,7 +232,7 @@ class TestTradesEndpoints:
 
     def test_modify_trade_returns_json(self, client, app_with_mocks, sample_trade_data):
         """Test modify trade endpoint returns JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -264,7 +245,7 @@ class TestTradesEndpoints:
 
     def test_close_trade_returns_json(self, client, app_with_mocks):
         """Test close trade endpoint returns JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "orderCreateTransaction": {},
@@ -277,7 +258,7 @@ class TestTradesEndpoints:
 
     def test_get_trade_contains_instrument(self, client, app_with_mocks, sample_trade_data):
         """Test trade details contains instrument"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_trade_data
 
@@ -289,7 +270,7 @@ class TestTradesEndpoints:
 
     def test_get_open_trades_multiple_records(self, client, app_with_mocks, sample_open_trades):
         """Test GET /trades/open returns multiple trades"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_open_trades
 

@@ -521,20 +521,34 @@ def app_fixture_with_mocks():
         mock_stream_client = MagicMock()
         mock_api_class.side_effect = [mock_oanda_client, mock_stream_client]
 
-        # Setup OANDA client mock - request should populate endpoint.response
-        def mock_request(endpoint):
-            """Mock request that populates endpoint.response"""
-            endpoint.response = {
-                "account": {
-                    "id": "123456",
-                    "currency": "USD",
-                    "balance": "50000.00",
-                }
-            }
-            return endpoint
+        # Setup OANDA client mock using a wrapper to handle both return_value and side_effect
+        class RequestMock:
+            def __init__(self):
+                self.return_value = None
+                self.side_effect = None
+                self.call_count = 0
 
-        mock_oanda_client.request = MagicMock(side_effect=mock_request)
-        mock_stream_client.request = MagicMock(side_effect=mock_request)
+            def __call__(self, endpoint):
+                self.call_count += 1
+                # If return_value was explicitly set, use it
+                if self.return_value is not None:
+                    response_data = self.return_value
+                    if isinstance(response_data, dict):
+                        endpoint.response = response_data
+                    return endpoint
+
+                # Otherwise use default
+                endpoint.response = {
+                    "account": {
+                        "id": "123456",
+                        "currency": "USD",
+                        "balance": "50000.00",
+                    }
+                }
+                return endpoint
+
+        mock_oanda_client.request = RequestMock()
+        mock_stream_client.request = RequestMock()
 
         # Now import server
         import server
@@ -549,13 +563,21 @@ def app_fixture_with_mocks():
         server.circuit_breaker.get_state = MagicMock(return_value=MagicMock(value="CLOSED"))
         server.circuit_breaker.get_metrics = MagicMock(return_value={"state": "CLOSED", "failures": 0})
 
-        yield {
+        # Setup mock db_pool as None (so logging skips database operations in tests)
+        server.db_pool = None
+
+        result = {
             'app': server.app,
             'mock_oanda_client': mock_oanda_client,
             'mock_circuit_breaker': server.circuit_breaker,
             'mock_pool': server.db_pool,
         }
 
+        yield result
+
     finally:
         oanda_patcher.stop()
         env_patch.stop()
+        # Clean modules after test
+        if 'server' in sys.modules:
+            del sys.modules['server']

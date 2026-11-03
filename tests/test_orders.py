@@ -7,34 +7,15 @@ import json
 
 
 @pytest.fixture
-def app_with_mocks():
-    """Fixture to create FastAPI app with mocked dependencies"""
-    with patch.dict('os.environ', {
-        'OANDA_API_KEY': 'test-key',
-        'OANDA_ACCOUNT_ID': '123456',
-        'OANDA_ENVIRONMENT': 'practice',
-        'DATABASE_URL': 'postgresql://test:test@localhost/test_db'
-    }):
-        with patch('server.oanda_client') as mock_client, \
-             patch('server.db_pool', new_callable=AsyncMock) as mock_pool, \
-             patch('server.stream_client'):
-
-            # Setup mock pool
-            mock_conn = AsyncMock()
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
-            mock_conn.execute = AsyncMock()
-
-            from server import app
-            yield app, mock_client, mock_pool
+def app_with_mocks(app_fixture_with_mocks):
+    """Adapter fixture for backward compatibility"""
+    return app_fixture_with_mocks
 
 
 @pytest.fixture
 def client(app_with_mocks):
     """FastAPI test client"""
-    app, _, _ = app_with_mocks
-    return TestClient(app)
+    return TestClient(app_with_mocks['app'])
 
 
 class TestOrdersEndpoints:
@@ -42,7 +23,7 @@ class TestOrdersEndpoints:
 
     def test_get_orders_success(self, client, app_with_mocks, sample_pending_orders):
         """Test GET /orders returns list of orders"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_pending_orders
 
@@ -53,7 +34,7 @@ class TestOrdersEndpoints:
 
     def test_get_pending_orders_success(self, client, app_with_mocks, sample_pending_orders):
         """Test GET /orders/pending returns pending orders"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_pending_orders
 
@@ -64,7 +45,7 @@ class TestOrdersEndpoints:
 
     def test_get_order_details_success(self, client, app_with_mocks, sample_order_data):
         """Test GET /order/{order_id} returns order details"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -75,7 +56,7 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_success(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/market places market order"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -91,7 +72,7 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_with_stop_loss(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/market with stop loss"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -106,7 +87,7 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_with_take_profit(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/market with take profit"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -121,8 +102,6 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_missing_instrument(self, client, app_with_mocks):
         """Test POST /order/market fails without instrument"""
-        app, mock_client, _ = app_with_mocks
-
         payload = {
             "units": 1000
         }
@@ -132,8 +111,6 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_missing_units(self, client, app_with_mocks):
         """Test POST /order/market fails without units"""
-        app, mock_client, _ = app_with_mocks
-
         payload = {
             "instrument": "EUR_USD"
         }
@@ -143,7 +120,7 @@ class TestOrdersEndpoints:
 
     def test_place_limit_order_success(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/limit places limit order"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -158,7 +135,7 @@ class TestOrdersEndpoints:
 
     def test_place_limit_order_with_all_options(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/limit with all optional parameters"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -176,7 +153,7 @@ class TestOrdersEndpoints:
 
     def test_modify_order_success(self, client, app_with_mocks, sample_order_data):
         """Test PATCH /order/{order_id} modifies order"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -189,7 +166,7 @@ class TestOrdersEndpoints:
 
     def test_modify_order_units(self, client, app_with_mocks, sample_order_data):
         """Test PATCH /order/{order_id} modifies units"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -202,7 +179,7 @@ class TestOrdersEndpoints:
 
     def test_delete_order_success(self, client, app_with_mocks):
         """Test DELETE /order/{order_id} cancels order"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "orderCancelTransaction": {
@@ -218,7 +195,7 @@ class TestOrdersEndpoints:
 
     def test_get_orders_with_state_filter(self, client, app_with_mocks, sample_pending_orders):
         """Test GET /orders with state parameter"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_pending_orders
 
@@ -227,7 +204,7 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_buy(self, client, app_with_mocks, sample_order_data):
         """Test place market order with positive units (buy)"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -241,7 +218,7 @@ class TestOrdersEndpoints:
 
     def test_place_market_order_sell(self, client, app_with_mocks, sample_order_data):
         """Test place market order with negative units (sell)"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -255,7 +232,7 @@ class TestOrdersEndpoints:
 
     def test_place_stop_order_success(self, client, app_with_mocks, sample_order_data):
         """Test POST /order/stop places stop order"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 
@@ -270,7 +247,7 @@ class TestOrdersEndpoints:
 
     def test_orders_endpoints_return_json(self, client, app_with_mocks, sample_pending_orders):
         """Test orders endpoints return JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_pending_orders
 
@@ -279,7 +256,7 @@ class TestOrdersEndpoints:
 
     def test_place_order_returns_json(self, client, app_with_mocks, sample_order_data):
         """Test place order endpoint returns JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_order_data
 

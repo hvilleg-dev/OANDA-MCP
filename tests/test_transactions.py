@@ -7,42 +7,22 @@ import json
 
 
 @pytest.fixture
-def app_with_mocks():
-    """Fixture to create FastAPI app with mocked dependencies"""
-    with patch.dict('os.environ', {
-        'OANDA_API_KEY': 'test-key',
-        'OANDA_ACCOUNT_ID': '123456',
-        'OANDA_ENVIRONMENT': 'practice',
-        'DATABASE_URL': 'postgresql://test:test@localhost/test_db'
-    }):
-        with patch('server.oanda_client') as mock_client, \
-             patch('server.db_pool', new_callable=AsyncMock) as mock_pool, \
-             patch('server.stream_client'):
-
-            # Setup mock pool
-            mock_conn = AsyncMock()
-            mock_pool.acquire = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
-            mock_conn.execute = AsyncMock()
-
-            from server import app
-            yield app, mock_client, mock_pool
+def app_with_mocks(app_fixture_with_mocks):
+    """Adapter fixture for backward compatibility"""
+    return app_fixture_with_mocks
 
 
 @pytest.fixture
 def client(app_with_mocks):
     """FastAPI test client"""
-    app, _, _ = app_with_mocks
-    return TestClient(app)
-
+    return TestClient(app_with_mocks['app'])
 
 class TestTransactionsEndpoints:
     """Transactions endpoint tests"""
 
     def test_get_transactions_success(self, client, app_with_mocks):
         """Test GET /transactions returns transactions"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": [
@@ -60,7 +40,7 @@ class TestTransactionsEndpoints:
 
     def test_get_transaction_detail_success(self, client, app_with_mocks, sample_transaction_data):
         """Test GET /transaction/{transaction_id} returns details"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_transaction_data
 
@@ -69,7 +49,7 @@ class TestTransactionsEndpoints:
 
     def test_get_transactions_by_range_success(self, client, app_with_mocks):
         """Test GET /transactions/range returns range of transactions"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": [],
@@ -83,7 +63,7 @@ class TestTransactionsEndpoints:
 
     def test_get_transactions_since_success(self, client, app_with_mocks):
         """Test GET /transactions/since/{transaction_id}"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": []
@@ -95,7 +75,7 @@ class TestTransactionsEndpoints:
 
     def test_get_transactions_with_params(self, client, app_with_mocks):
         """Test GET /transactions with query parameters"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": []
@@ -107,7 +87,7 @@ class TestTransactionsEndpoints:
 
     def test_transactions_endpoint_returns_json(self, client, app_with_mocks):
         """Test transactions endpoint returns JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": []
@@ -119,7 +99,7 @@ class TestTransactionsEndpoints:
 
     def test_transaction_detail_endpoint_returns_json(self, client, app_with_mocks, sample_transaction_data):
         """Test transaction detail endpoint returns JSON"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_transaction_data
 
@@ -128,7 +108,7 @@ class TestTransactionsEndpoints:
 
     def test_get_transactions_returns_array(self, client, app_with_mocks):
         """Test GET /transactions returns array"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": []
@@ -142,7 +122,7 @@ class TestTransactionsEndpoints:
 
     def test_transaction_contains_required_fields(self, client, app_with_mocks, sample_transaction_data):
         """Test transaction contains required fields"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_transaction_data
 
@@ -154,7 +134,7 @@ class TestTransactionsEndpoints:
 
     def test_multiple_transaction_queries(self, client, app_with_mocks):
         """Test multiple sequential transaction queries"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_response = {
             "transactions": []
@@ -179,7 +159,7 @@ class TestTransactionsEndpoints:
 
     def test_transaction_detail_format(self, client, app_with_mocks, sample_transaction_data):
         """Test transaction detail response format"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_transaction_data
 
@@ -190,7 +170,7 @@ class TestTransactionsEndpoints:
 
     def test_different_transaction_ids(self, client, app_with_mocks, sample_transaction_data):
         """Test transactions with different IDs"""
-        app, mock_client, _ = app_with_mocks
+        mock_client = app_with_mocks['mock_oanda_client']
 
         mock_client.request.return_value = sample_transaction_data
 
