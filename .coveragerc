@@ -1,0 +1,51 @@
+[run]
+# Coverage configuration for OANDA MCP Server
+source = server.py
+omit =
+    */tests/*
+    */test_*.py
+    setup.py
+
+branch = True
+parallel = True
+
+[report]
+# Minimum coverage percentage
+fail_under = 80
+
+# Exclude lines from coverage
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+    class .*\(Protocol\):
+    \.\.\.
+
+# Ignore missing imports
+ignore_errors = True
+
+# Output precision
+precision = 2
+
+# Skip covered files
+skip_covered = False
+skip_empty = True
+
+# Sort report by percentage
+sort = Cover
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml
+
+[paths]
+source =
+    server.py
+    /d/2026/Trading 2026/Oanda MCP/server.py
