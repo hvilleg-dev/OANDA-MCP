@@ -146,8 +146,59 @@ Consultar `MCP_TOOLS_REFERENCE.md` para documentación completa de cada herramie
 
 ---
 
-## Documentación interactiva
+## Documentación
 
-- **Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc:** `http://localhost:8000/redoc`
+### Interactive API Documentation (Auto-Generated)
+
+The API documentation is automatically generated from endpoint docstrings and Pydantic models using FastAPI's built-in OpenAPI support:
+
+- **Swagger UI (Interactive):** `http://localhost:8000/docs`
+  - Test endpoints directly from the browser
+  - View request/response schemas
+  - See live API responses
+
+- **ReDoc (Alternative):** `http://localhost:8000/redoc`
+  - Clean, searchable API reference
+  - Organized by tag (Health, Account, Orders, etc.)
+  - Good for mobile viewing
+
+- **OpenAPI Spec (JSON):** `http://localhost:8000/openapi.json`
+  - Complete OpenAPI 3.0 specification
+  - Import into Postman, Insomnia, etc.
+  - Machine-readable API definition
+
 - **Dashboard:** `http://localhost:8000/dashboard`
+  - Visual monitoring of requests, orders, trades
+  - Database logs and statistics
+
+### Documentation Features
+
+Every endpoint is documented with:
+- **Summary:** Brief description of functionality
+- **Parameters:** All query/path/body parameters with type and constraints
+- **Response schemas:** Success and error responses with examples
+- **Rate limits:** Request rate limits per endpoint
+- **Error codes:** Possible errors (400, 422, 503, etc.)
+- **Use cases:** Common scenarios and examples
+
+### Pydantic Models
+
+Request/response models include:
+- Type information (string, integer, float, object)
+- Field descriptions and constraints
+- Examples and default values
+- Required vs optional fields
+
+### Documentation Testing
+
+Comprehensive test suite verifies documentation quality:
+```bash
+pytest tests/test_documentation.py -v
+```
+
+Tests check:
+- All critical endpoints documented
+- All parameters have descriptions
+- Pydantic models are properly documented
+- OpenAPI schema is valid
+- Response examples are present

@@ -23,6 +23,12 @@ import logging
 # Circuit breaker imports
 from src.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
+# Database optimization imports
+from src.db_optimizer import OptimizedConnectionPool, create_optimized_pool
+
+# Enhanced logging imports
+from src.logging_service import LoggingService, LoggingConfig
+
 from rate_limiter import rate_limit
 from validators import (
     validate_candle_params,
@@ -36,10 +42,22 @@ from validators import (
 )
 
 # ──────────────────────────────────────────────
-# Logging
+# Logging - Initialize Enhanced Logging Service
 # ──────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+# Initialize enhanced logging service (without DB yet, will update in lifespan)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+ENABLE_JSON_LOGGING = os.getenv("ENABLE_JSON_LOGGING", "true").lower() == "true"
+logging_config = LoggingConfig(
+    log_level=LOG_LEVEL,
+    enable_json=ENABLE_JSON_LOGGING,
+    enable_console=True,
+    enable_file=True,
+    log_dir="logs"
+)
+logging_service = LoggingService(config=logging_config)
 
 # ──────────────────────────────────────────────
 # Validation Error Handler
@@ -75,78 +93,85 @@ def handle_validation_error(error_msg: str, field: str = None, value: str = None
 # ──────────────────────────────────────────────
 
 class MarketOrderRequest(BaseModel):
-    instrument: str             = Field(..., example="EUR_USD", description="Currency pair or instrument")
-    units: int                  = Field(..., example=1000, description="Positive=buy, negative=sell")
-    stop_loss: Optional[float]  = Field(None, example=1.07000, description="Stop loss price")
-    take_profit: Optional[float]= Field(None, example=1.10000, description="Take profit price")
-    trailing_stop: Optional[float] = Field(None, example=0.0050, description="Trailing stop distance")
-    time_in_force: Optional[str]= Field("FOK", example="FOK", description="FOK or IOC")
-    client_id: Optional[str]    = Field(None, example="my-order-001", description="Custom ID")
+    """Market order request. Places an order at current market price."""
+    instrument: str             = Field(..., example="EUR_USD", description="Instrument/currency pair (e.g., EUR_USD, GBP_USD, XAU_USD)")
+    units: int                  = Field(..., example=1000, description="Order size. Positive=buy, negative=sell")
+    stop_loss: Optional[float]  = Field(None, example=1.07000, description="Stop loss price (optional)")
+    take_profit: Optional[float]= Field(None, example=1.10000, description="Take profit price (optional)")
+    trailing_stop: Optional[float] = Field(None, example=0.0050, description="Trailing stop distance in pips (optional)")
+    time_in_force: Optional[str]= Field("FOK", example="FOK", description="FOK (fill-or-kill) or IOC (immediate-or-cancel)")
+    client_id: Optional[str]    = Field(None, example="my-order-001", description="Custom order ID for client-side tracking")
 
 class LimitOrderRequest(BaseModel):
-    instrument: str             = Field(..., example="EUR_USD")
-    units: int                  = Field(..., example=1000, description="Positive=buy, negative=sell")
-    price: float                = Field(..., example=1.07500, description="Limit entry price")
-    stop_loss: Optional[float]  = Field(None, example=1.07000)
-    take_profit: Optional[float]= Field(None, example=1.10000)
-    trailing_stop: Optional[float] = Field(None, example=0.0050)
-    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z", description="Expiration RFC3339")
-    client_id: Optional[str]    = Field(None, example="my-limit-001")
+    """Limit order request. Executes when price reaches specified level."""
+    instrument: str             = Field(..., example="EUR_USD", description="Instrument/currency pair")
+    units: int                  = Field(..., example=1000, description="Order size. Positive=buy, negative=sell")
+    price: float                = Field(..., example=1.07500, description="Limit price at which order executes")
+    stop_loss: Optional[float]  = Field(None, example=1.07000, description="Stop loss price (optional)")
+    take_profit: Optional[float]= Field(None, example=1.10000, description="Take profit price (optional)")
+    trailing_stop: Optional[float] = Field(None, example=0.0050, description="Trailing stop distance (optional)")
+    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z", description="Order expiry RFC3339. Omit for GTC")
+    client_id: Optional[str]    = Field(None, example="my-limit-001", description="Custom order ID")
 
 class StopOrderRequest(BaseModel):
-    instrument: str             = Field(..., example="EUR_USD")
-    units: int                  = Field(..., example=1000, description="Positive=buy, negative=sell")
+    """Stop order request. Activates when price exceeds specified level."""
+    instrument: str             = Field(..., example="EUR_USD", description="Instrument/currency pair")
+    units: int                  = Field(..., example=1000, description="Order size. Positive=buy, negative=sell")
     price: float                = Field(..., example=1.09000, description="Stop activation price")
-    stop_loss: Optional[float]  = Field(None, example=1.08500)
-    take_profit: Optional[float]= Field(None, example=1.11000)
-    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z")
+    stop_loss: Optional[float]  = Field(None, example=1.08500, description="Stop loss price (optional)")
+    take_profit: Optional[float]= Field(None, example=1.11000, description="Take profit price (optional)")
+    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z", description="Order expiry RFC3339")
 
 class ModifyOrderRequest(BaseModel):
-    price: Optional[float]      = Field(None, example=1.08000, description="New price")
-    units: Optional[int]        = Field(None, example=2000, description="New units")
-    stop_loss: Optional[float]  = Field(None, example=1.07000)
-    take_profit: Optional[float]= Field(None, example=1.10000)
-    timeInForce: Optional[str]  = Field(None, example="GTC")
-    gtdTime: Optional[str]      = Field(None, example="2024-12-31T23:59:59Z")
+    """Modify order request. Updates parameters of pending order."""
+    price: Optional[float]      = Field(None, example=1.08000, description="New order price")
+    units: Optional[int]        = Field(None, example=2000, description="New order size")
+    stop_loss: Optional[float]  = Field(None, example=1.07000, description="New stop loss price")
+    take_profit: Optional[float]= Field(None, example=1.10000, description="New take profit price")
+    timeInForce: Optional[str]  = Field(None, example="GTC", description="GTC/GTD/FOK/IOC")
+    gtdTime: Optional[str]      = Field(None, example="2024-12-31T23:59:59Z", description="Required if timeInForce=GTD")
 
 class ModifyTradeRequest(BaseModel):
-    stop_loss: Optional[float]  = Field(None, example=1.07000, description="New SL. null to remove")
-    take_profit: Optional[float]= Field(None, example=1.10000, description="New TP. null to remove")
-    trailing_stop: Optional[float] = Field(None, example=0.0050, description="New TS distance. null to remove")
+    """Modify trade request. Updates SL/TP/trailing stop. Null value removes."""
+    stop_loss: Optional[float]  = Field(None, example=1.07000, description="Stop loss price. null=remove SL")
+    take_profit: Optional[float]= Field(None, example=1.10000, description="Take profit price. null=remove TP")
+    trailing_stop: Optional[float] = Field(None, example=0.0050, description="Trailing stop distance. null=remove TSL")
 
 class ClosePositionRequest(BaseModel):
-    units: Optional[str]        = Field("ALL", example="ALL", description="Units to close or ALL")
-    side: Optional[str]         = Field("both", example="both", description="long, short or both")
+    """Close position request. Closes position with optional side filter."""
+    units: Optional[str]        = Field("ALL", example="ALL", description="ALL closes all, or specify number")
+    side: Optional[str]         = Field("both", example="both", description="long/short/both")
 
 class AccountConfigRequest(BaseModel):
-    alias: Optional[str]        = Field(None, example="My Demo Account", description="Custom alias")
-    marginRate: Optional[str]   = Field(None, example="0.02", description="Margin rate (e.g.: 0.02 = 50:1)")
+    """Account configuration request. Updates account settings."""
+    alias: Optional[str]        = Field(None, example="My Trading Account", description="Account nickname")
+    marginRate: Optional[str]   = Field(None, example="0.02", description="Margin rate (0.02 = 50:1 leverage)")
 
 class CloseTradeRequest(BaseModel):
-    units: Optional[str] = Field(
-        None,
-        example="200",
-        description="Units to close (positive). Omit or 'ALL' to fully close the trade."
-    )
+    """Close trade request. Closes trade fully or partially."""
+    units: Optional[str] = Field(None, example="200", description="Units to close. null/ALL=full close")
 
 class TradeOrdersRequest(BaseModel):
-    takeProfit: Optional[dict]       = Field(None, description='{"price": "1.15000", "timeInForce": "GTC"} or null to cancel')
-    stopLoss: Optional[dict]         = Field(None, description='{"price": "1.10000", "timeInForce": "GTC"} or null to cancel')
-    trailingStopLoss: Optional[dict] = Field(None, description='{"distance": "0.0050", "timeInForce": "GTC"} or null to cancel')
-    guaranteedStopLoss: Optional[dict] = Field(None, description='{"price": "1.09000", "timeInForce": "GTC"} or null to cancel. Only accounts with GSLO enabled (UK/EU).')
+    """Trade dependent orders request. Sets/modifies/cancels TP/SL/TSL/GSL."""
+    takeProfit: Optional[dict]       = Field(None, description='{"price":"1.15","timeInForce":"GTC"} or null')
+    stopLoss: Optional[dict]         = Field(None, description='{"price":"1.10","timeInForce":"GTC"} or null')
+    trailingStopLoss: Optional[dict] = Field(None, description='{"distance":"0.005","timeInForce":"GTC"} or null')
+    guaranteedStopLoss: Optional[dict] = Field(None, description='GSL (UK/EU only). {"price":"1.09","timeInForce":"GTC"} or null')
 
 class ClientExtensionsRequest(BaseModel):
-    clientExtensions: Optional[dict] = Field(None, description='{"id": "my-id", "tag": "tag1", "comment": "comment"}')
-    tradeClientExtensions: Optional[dict] = Field(None, description="For orders only, extensions of the resulting trade")
+    """Client extensions request. Adds custom metadata tags."""
+    clientExtensions: Optional[dict] = Field(None, description='{"id":"id","tag":"tag","comment":"comment"}')
+    tradeClientExtensions: Optional[dict] = Field(None, description="Trade extensions for orders")
 
 class MITOrderRequest(BaseModel):
-    instrument: str             = Field(..., example="EUR_USD")
-    units: int                  = Field(..., example=1000, description="Positive=buy, negative=sell")
-    price: float                = Field(..., example=1.07500, description="MIT activation price")
-    stop_loss: Optional[float]  = Field(None, example=1.07000)
-    take_profit: Optional[float]= Field(None, example=1.10000)
-    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z")
-    client_id: Optional[str]    = Field(None, example="my-mit-001")
+    """MIT (Market-If-Touched) order request. Becomes market order when touched."""
+    instrument: str             = Field(..., example="EUR_USD", description="Instrument/currency pair")
+    units: int                  = Field(..., example=1000, description="Order size. Positive=buy, negative=sell")
+    price: float                = Field(..., example=1.07500, description="Price that triggers market execution")
+    stop_loss: Optional[float]  = Field(None, example=1.07000, description="Stop loss price (optional)")
+    take_profit: Optional[float]= Field(None, example=1.10000, description="Take profit price (optional)")
+    expiry: Optional[str]       = Field(None, example="2024-12-31T23:59:59Z", description="Order expiry RFC3339")
+    client_id: Optional[str]    = Field(None, example="my-mit-001", description="Custom order ID")
 
 # ──────────────────────────────────────────────
 # Config
@@ -185,6 +210,8 @@ circuit_breaker = CircuitBreaker(
 # Pool PostgreSQL
 # ──────────────────────────────────────────────
 db_pool: asyncpg.Pool = None
+db_optimizer: Optional[OptimizedConnectionPool] = None
+use_optimized_pool: bool = os.getenv("USE_OPTIMIZED_POOL", "false").lower() == "true"
 
 async def init_db(pool: asyncpg.Pool):
     async with pool.acquire() as conn:
@@ -359,20 +386,45 @@ def parse_v20_error(e: V20Error) -> Dict[str, Any]:
 # ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_pool
+    global db_pool, db_optimizer, logging_service
+
     for i in range(5):
         try:
-            db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+            if use_optimized_pool:
+                # Use optimized pool with caching and monitoring
+                db_optimizer = await create_optimized_pool(
+                    DATABASE_URL,
+                    min_size=int(os.getenv("DB_POOL_MIN_SIZE", 5)),
+                    max_size=int(os.getenv("DB_POOL_MAX_SIZE", 20)),
+                    enable_cache=os.getenv("DB_CACHE_ENABLED", "true").lower() == "true"
+                )
+                db_pool = db_optimizer.pool
+                logger.info("PostgreSQL optimized pool initialized (with caching and monitoring).")
+            else:
+                # Standard pool
+                db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+                logger.info("PostgreSQL standard pool initialized.")
+
             await init_db(db_pool)
             logger.info("PostgreSQL connection established.")
+
+            # Re-initialize logging service with database pool
+            logging_service = LoggingService(config=logging_config, db_pool=db_pool, force_reinit=True)
+            await logging_service.init_audit_table()
+            logging_service.logger.info("Enhanced logging service initialized with database pool")
+
             break
         except Exception as e:
             logger.warning(f"PostgreSQL unavailable ({i+1}/5): {e}")
             await asyncio.sleep(3)
     else:
         logger.error("Could not connect to PostgreSQL. Server continues without DB logging.")
+
     yield
-    if db_pool:
+
+    if db_optimizer:
+        await db_optimizer.close()
+    elif db_pool:
         await db_pool.close()
 
 # ──────────────────────────────────────────────
@@ -389,50 +441,104 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ──────────────────────────────────────────────
-# Middleware logging
+# Enhanced Middleware logging with Metrics
 # ──────────────────────────────────────────────
 SKIP_LOG_PATHS = {"/", "/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
-async def logging_middleware(request: Request, call_next):
+async def enhanced_logging_middleware(request: Request, call_next):
+    """Enhanced middleware with structured logging and metrics collection"""
+    import uuid
+
     start  = time.time()
     path   = request.url.path
     method = request.method
     query  = dict(request.query_params)
+    correlation_id = str(uuid.uuid4())
     skip   = path in SKIP_LOG_PATHS or path.startswith("/dashboard") or path.startswith("/db/") or path.startswith("/pricing/stream")
 
-    body = None
-    if method in ("POST", "PATCH", "PUT"):
+    # Log incoming request
+    if not skip:
         try:
-            raw  = await request.body()
-            body = json.loads(raw) if raw else None
-        except Exception:
             body = None
+            if method in ("POST", "PATCH", "PUT"):
+                try:
+                    raw  = await request.body()
+                    body = json.loads(raw) if raw else None
+                except Exception:
+                    body = None
 
+            headers = dict(request.headers)
+            logging_service.request_logger.log_request(
+                method=method,
+                path=path,
+                query_params=query if query else None,
+                headers=headers,
+                body=body,
+                correlation_id=correlation_id
+            )
+        except Exception as e:
+            logger.error(f"Error logging request: {e}")
+
+    # Process request
     response = await call_next(request)
     duration = round((time.time() - start) * 1000, 2)
 
-    if db_pool and not skip:
+    # Log response and collect metrics
+    if not skip:
         try:
             chunks = []
             async for chunk in response.body_iterator:
                 chunks.append(chunk)
             resp_bytes = b"".join(chunks)
+            resp_size = len(resp_bytes)
             resp_body  = json.loads(resp_bytes.decode()) if resp_bytes else None
             is_error   = response.status_code >= 400
 
-            asyncio.ensure_future(log_request(
-                db_pool, method, path, query, body,
-                response.status_code, duration, resp_body,
-                resp_body.get("errorCode")    if resp_body and is_error else None,
-                resp_body.get("errorMessage") if resp_body and is_error else None,
-                is_error
-            ))
+            # Log response
+            logging_service.request_logger.log_response(
+                method=method,
+                path=path,
+                status_code=response.status_code,
+                duration_ms=duration,
+                response_size=resp_size,
+                body=resp_body if not is_error else None
+            )
+
+            # Record metrics
+            await logging_service.metrics.record_request(
+                endpoint=path,
+                method=method,
+                duration_ms=duration,
+                status_code=response.status_code,
+                response_size=resp_size
+            )
+
+            # Log error details if applicable
+            if is_error:
+                logging_service.request_logger.log_error(
+                    method=method,
+                    path=path,
+                    status_code=response.status_code,
+                    error_code=resp_body.get("errorCode") if resp_body else None,
+                    error_message=resp_body.get("errorMessage") if resp_body else None,
+                    duration_ms=duration
+                )
+
+            # Also log to database for audit trail (legacy support)
+            if db_pool:
+                asyncio.ensure_future(log_request(
+                    db_pool, method, path, query, body,
+                    response.status_code, duration, resp_body,
+                    resp_body.get("errorCode")    if resp_body and is_error else None,
+                    resp_body.get("errorMessage") if resp_body and is_error else None,
+                    is_error
+                ))
 
             return Response(content=resp_bytes, status_code=response.status_code,
                             headers=dict(response.headers), media_type=response.media_type)
         except Exception as e:
-            logger.error(f"Middleware logging error: {e}")
+            logger.error(f"Enhanced middleware logging error: {e}")
 
     return response
 
@@ -440,14 +546,42 @@ async def logging_middleware(request: Request, call_next):
 # ══════════════════════════════════════════════
 # HEALTH
 # ══════════════════════════════════════════════
-@app.get("/", tags=["Health"])
+@app.get("/", tags=["Health"], summary="Server Status")
 async def root():
+    """
+    Root endpoint. Returns basic server health and environment info.
+
+    **Response:**
+    - message: Confirmation message
+    - environment: 'practice' or 'live'
+    - mode: LIVE or PRACTICE
+    - status: Server health status
+    - timestamp: Server time (ISO 8601)
+    """
     return {"message": "Oanda MCP Server running!", "environment": OANDA_ENVIRONMENT,
             "mode": "LIVE" if OANDA_ENVIRONMENT == "live" else "PRACTICE",
             "status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.get("/health", tags=["Health"])
+@app.get("/health", tags=["Health"], summary="Health Check")
 async def health_check():
+    """
+    Comprehensive health check. Tests OANDA API connection, database, and circuit breaker status.
+
+    **Returns:**
+    - status: 'healthy' or 'unhealthy'
+    - oanda_connection: 'ok' if OANDA reachable
+    - db_connection: 'ok' or 'unavailable'
+    - environment: Current environment
+    - mode: LIVE or PRACTICE
+    - currency: Account base currency
+    - balance: Current account balance
+    - circuit_breaker_state: CLOSED, OPEN, or HALF_OPEN
+
+    **Error scenarios:**
+    - Circuit breaker OPEN: Returns 503 if too many failures
+    - Database unavailable: Noted in db_connection field
+    - OANDA unreachable: Error field populated
+    """
     try:
         r = accounts.AccountDetails(accountID=OANDA_ACCOUNT_ID)
         await circuit_breaker.call(oanda_client.request, r)
@@ -462,11 +596,27 @@ async def health_check():
         return {"status": "unhealthy", "error": str(e), "circuit_breaker_state": circuit_breaker.get_state().value}
 
 
-@app.get("/metrics", tags=["Health"])
+@app.get("/metrics", tags=["Health"], summary="System Metrics")
 async def get_metrics():
-    """Returns circuit breaker metrics and server statistics."""
+    """
+    Returns detailed circuit breaker, logging, and system metrics.
+
+    **Metrics:**
+    - circuit_breaker: Failure count, state, recovery attempts
+    - logging: Request metrics per endpoint (count, latency, error rates)
+    - environment: Current environment
+    - mode: LIVE or PRACTICE
+    - timestamp: Current time (ISO 8601)
+
+    **Use cases:**
+    - Monitor circuit breaker health
+    - Track API performance and error rates
+    - Analyze request patterns by endpoint
+    - Detect when system is recovering
+    """
     return {
         "circuit_breaker": circuit_breaker.get_metrics(),
+        "logging": logging_service.get_metrics_summary(),
         "environment": OANDA_ENVIRONMENT,
         "mode": "LIVE" if OANDA_ENVIRONMENT == "live" else "PRACTICE",
         "timestamp": datetime.now(timezone.utc).isoformat()
@@ -476,9 +626,33 @@ async def get_metrics():
 # ══════════════════════════════════════════════
 # ACCOUNT
 # ══════════════════════════════════════════════
-@app.get("/account", tags=["Account"])
+@app.get("/account", tags=["Account"], summary="Get Full Account Details")
 @rate_limit(50)
 async def get_account_info():
+    """
+    Retrieves complete account information including balance, margin, positions, and trades.
+
+    **Response includes:**
+    - id: Account ID
+    - alias: Account name/alias
+    - currency: Base currency (usually USD)
+    - balance: Current account balance
+    - unrealizedPL: Unrealized profit/loss on open trades
+    - realizedPL: Realized profit/loss (lifetime)
+    - marginUsed: Margin currently in use
+    - marginAvailable: Available margin for new positions
+    - marginRate: Account leverage ratio
+    - positions: Open positions for each instrument
+    - trades: Open trades
+    - orders: Pending orders
+
+    **HTTP Status:**
+    - 200: Success
+    - 400: Invalid parameters or API error
+    - 503: Circuit breaker open (too many failures)
+
+    **Rate limit:** 50 req/min per account
+    """
     try:
         r = accounts.AccountDetails(accountID=OANDA_ACCOUNT_ID)
         await circuit_breaker.call(oanda_client.request, r)
@@ -492,9 +666,30 @@ async def get_account_info():
     except Exception as e:
         raise HTTPException(status_code=500, detail={"errorMessage": str(e)})
 
-@app.get("/account/summary", tags=["Account"])
+@app.get("/account/summary", tags=["Account"], summary="Get Account Summary")
 @rate_limit(50)
 async def get_account_summary():
+    """
+    Retrieves lightweight account summary (balance, margin, P&L only).
+
+    **Response includes:**
+    - id, alias: Account identifiers
+    - balance: Current balance
+    - unrealizedPL: Open P&L
+    - realizedPL: Closed P&L
+    - marginUsed, marginAvailable: Margin metrics
+    - marginRate: Leverage
+    - createdByUserID: Admin who created account
+    - createdTime: Account creation time
+    - lastTransactionID: Most recent transaction ID
+
+    **Difference from /account:**
+    - Lighter response (no detailed position/trade arrays)
+    - Faster response time
+    - Same rate limit
+
+    **Rate limit:** 50 req/min
+    """
     try:
         r = accounts.AccountSummary(accountID=OANDA_ACCOUNT_ID)
         await circuit_breaker.call(oanda_client.request, r)
@@ -506,12 +701,36 @@ async def get_account_summary():
     except Exception as e:
         raise HTTPException(status_code=500, detail={"errorMessage": str(e)})
 
-@app.get("/account/instruments", tags=["Account"])
+@app.get("/account/instruments", tags=["Account"], summary="List Available Instruments")
 @rate_limit(50)
 async def get_account_instruments(
-    instruments: Optional[str] = Query(None, description="CSV of InstrumentNames to filter. Ex: EUR_USD,XAU_USD. No value = returns all available instruments.")
+    instruments: Optional[str] = Query(None, description="CSV filter: EUR_USD,GBP_USD,XAU_USD. Empty = all available")
 ):
-    """Lists available instruments for the account. GET /v3/accounts/{accountID}/instruments"""
+    """
+    Lists all instruments (currency pairs, metals, indices, etc.) available for trading on this account.
+
+    **Query Parameters:**
+    - instruments: Optional CSV list to filter specific instruments. Ex: EUR_USD,GBP_USD,XAU_USD
+
+    **Response (array) includes for each instrument:**
+    - name: Instrument code (e.g., EUR_USD)
+    - type: CURRENCY, METAL, INDEX, COMMODITY
+    - displayName: Human-readable name
+    - pipLocation: Decimal position of pip (usually -4)
+    - maximumOrderUnits: Max trade size allowed
+    - minimumTradeSize: Minimum order size
+    - maximumTrailingStopDistance: Max trailing stop distance
+    - minimumTrailingStopDistance: Min trailing stop distance
+    - financing: Interest rates for holding positions
+    - marginRate: Leverage factor
+
+    **Use cases:**
+    - Discover what's available for trading
+    - Get instrument metadata (pip location, max size)
+    - Verify instrument exists before placing order
+
+    **Rate limit:** 50 req/min
+    """
     try:
         params = {"instruments": instruments} if instruments else {}
         r = accounts.AccountInstruments(accountID=OANDA_ACCOUNT_ID, params=params or None)
@@ -528,22 +747,70 @@ async def get_account_instruments(
 # ══════════════════════════════════════════════
 # INSTRUMENTS
 # ══════════════════════════════════════════════
-@app.get("/instruments/{instrument}/candles", tags=["Instruments"])
+@app.get("/instruments/{instrument}/candles", tags=["Instruments"], summary="Get Historical Candles")
 @rate_limit(50)
 async def get_candles(
     instrument: str,
-    price: str = Query("M", description="Price component: M=mid, B=bid, A=ask, BA=bid+ask, MBA=all"),
+    price: str = Query("M", description="M=mid, B=bid, A=ask, BA=bid+ask, MBA=all. Can combine: 'BM' for bid+mid"),
     granularity: str = Query("S5", description="S5 S10 S15 S30 M1 M2 M4 M5 M10 M15 M30 H1 H2 H3 H4 H6 H8 H12 D W M"),
-    count: int = Query(500, le=5000, description="Number of candles [default=500, max=5000]"),
-    from_time: Optional[str] = Query(None, alias="from", description="Start time RFC3339"),
-    to_time: Optional[str] = Query(None, alias="to", description="End time RFC3339"),
-    smooth: bool = Query(False, description="Use previous close as next candle open"),
+    count: int = Query(500, le=5000, description="Candles to return [1-5000]. Default: 500"),
+    from_time: Optional[str] = Query(None, alias="from", description="RFC3339 start time. Ex: 2024-01-15T10:00:00Z"),
+    to_time: Optional[str] = Query(None, alias="to", description="RFC3339 end time (required if from specified)"),
+    smooth: bool = Query(False, description="True: use previous close as open. False: default open"),
     includeFirst: bool = Query(True, description="Include candle at 'from' timestamp"),
-    dailyAlignment: int = Query(17, ge=0, le=23, description="Hour of day for daily alignment"),
-    alignmentTimezone: str = Query("America/New_York", description="Timezone for daily alignment"),
-    weeklyAlignment: str = Query("Friday", description="Day of week for weekly alignment")
+    dailyAlignment: int = Query(17, ge=0, le=23, description="Hour (0-23) for daily candle boundary"),
+    alignmentTimezone: str = Query("America/New_York", description="Timezone for daily alignment (IANA name)"),
+    weeklyAlignment: str = Query("Friday", description="Day for weekly alignment (Monday-Sunday)"),
 ):
-    """Gets OHLCV candles for an instrument. Supports all OANDA v3 parameters."""
+    """
+    Retrieves OHLCV (Open, High, Low, Close, Volume) historical candles for an instrument.
+
+    **Path Parameters:**
+    - instrument: EUR_USD, GBP_USD, XAU_USD, etc.
+
+    **Query Parameters:**
+
+    **Time selection (use one method):**
+    1. count only: Gets last N candles
+    2. from + to: Gets candles in time range
+    3. from + count: Gets count candles starting from time
+
+    **Example queries:**
+    - `?granularity=M5&count=100` - Last 100 5-minute candles
+    - `?granularity=D&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z` - Daily candles in January
+    - `?price=MBA&granularity=H1` - Bid, mid, ask data hourly
+
+    **Price components:**
+    - M: Midpoint (bid + ask) / 2
+    - B: Bid prices
+    - A: Ask prices
+    - BA: Both bid and ask
+    - MBA: All three (bid, mid, ask)
+
+    **Granularities:**
+    - S5, S10, S15, S30: Seconds
+    - M1-M30: Minutes
+    - H1-H12: Hours
+    - D: Daily
+    - W: Weekly
+    - M: Monthly
+
+    **Response (per candle):**
+    - time: Candle open time (RFC3339)
+    - bid/mid/ask: {o, h, l, c} (open, high, low, close)
+    - volume: Tick count
+    - complete: true if candle closed, false if current/incomplete
+
+    **Use cases:**
+    - Technical analysis, backtesting
+    - Drawing charts
+    - Computing indicators (MA, RSI, MACD, etc.)
+
+    **Rate limit:** 50 req/min
+
+    **Note:** Alignment parameters (dailyAlignment, alignmentTimezone, weeklyAlignment) control
+    when daily/weekly candles "roll" (e.g., NYSE closes at 5pm NY time, so dailyAlignment=17).
+    """
     try:
         # Pre-flight validation
         try:
@@ -619,9 +886,34 @@ async def get_historical_data(instrument: str, granularity: str = "D", count: in
 # ══════════════════════════════════════════════
 # PRICING
 # ══════════════════════════════════════════════
-@app.get("/price/{instrument}", tags=["Pricing"])
+@app.get("/price/{instrument}", tags=["Pricing"], summary="Get Single Instrument Price")
 @rate_limit(100)
 async def get_current_price(instrument: str):
+    """
+    Retrieves current bid/ask prices for a single instrument.
+
+    **Path Parameters:**
+    - instrument: Currency pair (EUR_USD, GBP_USD, etc.)
+
+    **Response includes:**
+    - instrument: Requested instrument
+    - time: Quote timestamp (RFC3339)
+    - bid: Current bid price (price to sell)
+    - ask: Current ask price (price to buy)
+    - closeoutBid: Close-out bid price (if different)
+    - closeoutAsk: Close-out ask price
+    - tradeable: true if instrument available for trading
+    - quoteHomeConversionFactors: Conversion to account currency (if requested)
+
+    **Use cases:**
+    - Get current market price before placing order
+    - Monitor spread (ask - bid)
+    - Real-time price monitoring
+
+    **Rate limit:** 100 req/min
+
+    **Note:** For continuous real-time prices, use `/pricing/stream` (Server-Sent Events).
+    """
     try:
         # Pre-flight validation
         try:
@@ -639,16 +931,41 @@ async def get_current_price(instrument: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail={"errorMessage": str(e)})
 
-@app.get("/pricing", tags=["Pricing"])
+@app.get("/pricing", tags=["Pricing"], summary="Get Multiple Prices")
 @rate_limit(100)
 async def get_multiple_prices(
-    instruments_param: str = Query(..., alias="instruments", description="CSV of instruments: EUR_USD,USD_CAD"),
-    since: Optional[str] = Query(None, description="RFC3339 — only returns prices changed after this date"),
-    includeHomeConversions: bool = Query(False, description="Include conversion factors to account base currency")
+    instruments_param: str = Query(..., alias="instruments", description="CSV: EUR_USD,GBP_USD,XAU_USD"),
+    since: Optional[str] = Query(None, description="RFC3339 timestamp. Only return prices changed after this"),
+    includeHomeConversions: bool = Query(False, description="Include conversion factors to base currency")
 ):
     """
-    Gets prices for one or more instruments.
-    GET /v3/accounts/{accountID}/pricing
+    Retrieves current bid/ask prices for multiple instruments in one request.
+
+    **Query Parameters:**
+    - instruments (required): CSV list of instruments. Ex: EUR_USD,GBP_USD,XAU_USD,SPX500_USD
+    - since: Optional RFC3339 timestamp. Only returns prices that changed after this time
+    - includeHomeConversions: true to include conversion factors to account base currency
+
+    **Response:**
+    - prices: Array of price objects (same structure as /price/{instrument})
+    - homeConversions: Optional conversion rates to base currency
+
+    **Use cases:**
+    - Batch price lookup (more efficient than multiple /price calls)
+    - Dashboard/monitoring multiple instruments
+    - Snapshot for algo trading
+
+    **Example:**
+    ```
+    GET /pricing?instruments=EUR_USD,GBP_USD,XAU_USD&includeHomeConversions=true
+    ```
+
+    **Performance:**
+    - Faster than calling /price/{instrument} multiple times
+    - Single API request vs N requests
+    - Use for monitoring dashboards
+
+    **Rate limit:** 100 req/min
     """
     try:
         # Pre-flight validation
@@ -886,22 +1203,104 @@ async def _place_order(req: Dict[str, Any], order_type: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail={"errorMessage": str(e)})
 
-@app.post("/order/market", tags=["Orders"])
+@app.post("/order/market", tags=["Orders"], summary="Place Market Order", status_code=201)
 @rate_limit(100)
 async def place_market_order(order_request: MarketOrderRequest, request: Request):
-    """Places a market order at current price."""
+    """
+    Places a market order. Executes immediately at current market price.
+
+    **Request Body:**
+    - instrument: Currency pair (EUR_USD, GBP_USD, etc.)
+    - units: Order size. Positive=long, negative=short
+    - stop_loss: Optional stop loss price
+    - take_profit: Optional take profit price
+    - trailing_stop: Optional trailing stop distance
+    - time_in_force: FOK (fill-or-kill) or IOC (immediate-or-cancel) - default: FOK
+    - client_id: Optional custom ID for tracking
+
+    **Response on success (201):**
+    - orderCreateTransaction: Order creation details including ID, price, timestamp
+    - orderFillTransaction: Fill details (only if FOK and immediate fill)
+    - trades: Array of resulting trades
+
+    **Response on rejection (422):**
+    - errorCode: ORDER_REJECTED
+    - rejectReason: Why order was rejected (insufficient margin, invalid size, etc.)
+
+    **Examples of rejection reasons:**
+    - INSUFFICIENT_MARGIN: Not enough margin for position
+    - INVALID_ORDER: Order parameters invalid
+    - MAX_ORDERS_FOR_ACCOUNT: Too many pending orders
+    - FIFO_VIOLATION: FIFO rule violation (cannot open new position while losses open)
+
+    **Rate limit:** 100 req/min
+
+    **Error scenarios:**
+    - 400: API error from OANDA
+    - 422: Order rejected (insufficient margin, invalid parameters)
+    - 503: Circuit breaker open (service unavailable)
+    """
     return await _place_order(order_request.model_dump(), "MARKET", request)
 
-@app.post("/order/limit", tags=["Orders"])
+@app.post("/order/limit", tags=["Orders"], summary="Place Limit Order", status_code=201)
 @rate_limit(100)
 async def place_limit_order(order_request: LimitOrderRequest, request: Request):
-    """Places a limit order. Executes when price reaches specified level."""
+    """
+    Places a limit order. Executes when price reaches or crosses the specified level.
+
+    **Request Body:**
+    - instrument: Currency pair
+    - units: Order size
+    - price: Limit entry price (order executes at this price or better)
+    - stop_loss, take_profit: Optional protective orders
+    - trailing_stop: Optional trailing stop
+    - expiry: Optional expiration time (RFC3339). Omit for GTC (Good-til-Cancelled)
+    - client_id: Optional custom ID
+
+    **Order Lifetime:**
+    - If expiry omitted: GTC (Good-til-Cancelled) - remains until filled/canceled
+    - If expiry set: GTD (Good-til-Date) - expires at specified time
+
+    **Response:**
+    - Same as market order
+    - Note: Order not immediately filled (PENDING status until price reached)
+
+    **Common rejection reasons:**
+    - Invalid price for instrument
+    - Insufficient margin
+    - Price in wrong direction (buy limit too high, sell limit too low)
+
+    **Rate limit:** 100 req/min
+    """
     return await _place_order(order_request.model_dump(), "LIMIT", request)
 
-@app.post("/order/stop", tags=["Orders"])
+@app.post("/order/stop", tags=["Orders"], summary="Place Stop Order", status_code=201)
 @rate_limit(100)
 async def place_stop_order(order_request: StopOrderRequest, request: Request):
-    """Places a stop order. Activates when price exceeds specified level."""
+    """
+    Places a stop order. Activates and becomes a market order when price touches/crosses specified level.
+
+    **Request Body:**
+    - instrument: Currency pair
+    - units: Order size
+    - price: Stop activation price (order activates when touched)
+    - stop_loss, take_profit: Optional protective orders
+    - expiry: Optional expiration time
+
+    **Behavior:**
+    - Order remains PENDING until price touches/crosses stop price
+    - Once triggered, becomes market order at market price (not guaranteed at stop price)
+    - Useful for entering breakout trades
+
+    **Stop Order vs Stop Loss:**
+    - Stop Order: Pending order that becomes market when triggered
+    - Stop Loss: Risk management on open trade
+
+    **Response:**
+    - Same as market/limit orders
+
+    **Rate limit:** 100 req/min
+    """
     return await _place_order(order_request.model_dump(), "STOP", request)
 
 @app.patch("/order/{order_id}", tags=["Orders"])
@@ -1017,10 +1416,52 @@ async def get_trade_details(trade_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail={"errorMessage": str(e)})
 
-@app.patch("/trade/{trade_id}", tags=["Trades"])
+@app.patch("/trade/{trade_id}", tags=["Trades"], summary="Modify Trade (PATCH)")
 @rate_limit(100)
 async def modify_trade(trade_id: str, trade_update: ModifyTradeRequest):
-    """Modifies SL, TP or Trailing Stop of an open trade. Pass null to remove."""
+    """
+    Modifies stop loss, take profit, or trailing stop of an open trade using PATCH.
+
+    **Path Parameters:**
+    - trade_id: ID of open trade to modify
+
+    **Request Body:**
+    - stop_loss: New SL price. null or omit to remove SL. Field must be present to update
+    - take_profit: New TP price. null to remove TP
+    - trailing_stop: New TSL distance. null to remove TSL
+
+    **Behavior:**
+    - Each field is independent (can update just SL, or just TP, etc.)
+    - Pass null (not missing) to remove an order
+    - Omit field entirely to leave unchanged
+
+    **Examples:**
+
+    1. Update just stop loss:
+    ```json
+    {"stop_loss": 1.0500}
+    ```
+
+    2. Remove stop loss but keep take profit:
+    ```json
+    {"stop_loss": null}
+    ```
+
+    3. Update SL and TP:
+    ```json
+    {"stop_loss": 1.0500, "take_profit": 1.0800}
+    ```
+
+    **Response:**
+    - tradeOrdersFilledTransaction: Details of orders created/modified/closed
+    - tradeOrdersCancelledTransaction: If closing orders
+
+    **Alternative:** Use PUT /trade/{id}/orders for more control over all four order types (TP, SL, TSL, GSL).
+
+    **Rate limit:** 100 req/min
+
+    **Note:** Use this endpoint when modifying trade SL/TP. Use DELETE /order/{id} to cancel pending orders.
+    """
     try:
         # Pre-flight validation
         try:
@@ -1582,6 +2023,47 @@ async def db_get_stats():
             "rejected_orders": await conn.fetchval("SELECT COUNT(*) FROM order_log WHERE status='REJECTED'"),
             "total_trades":    await conn.fetchval("SELECT COUNT(*) FROM trade_log"),
         }
+
+@app.get("/db-stats", tags=["Database"])
+async def db_optimization_stats():
+    """Enhanced database statistics including connection pool, cache, and query performance metrics"""
+    _db_check()
+
+    stats = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "pool_config": {
+            "min_size": db_optimizer.min_size if db_optimizer else "N/A",
+            "max_size": db_optimizer.max_size if db_optimizer else "N/A",
+            "optimized": use_optimized_pool,
+        },
+        "cache": {
+            "enabled": db_optimizer is not None and db_optimizer.cache is not None,
+        }
+    }
+
+    # Get basic database stats
+    async with db_pool.acquire() as conn:
+        stats["database"] = {
+            "total_requests": await conn.fetchval("SELECT COUNT(*) FROM request_log"),
+            "total_errors": await conn.fetchval("SELECT COUNT(*) FROM error_log"),
+            "total_orders": await conn.fetchval("SELECT COUNT(*) FROM order_log"),
+            "filled_orders": await conn.fetchval("SELECT COUNT(*) FROM order_log WHERE status='FILLED'"),
+            "rejected_orders": await conn.fetchval("SELECT COUNT(*) FROM order_log WHERE status='REJECTED'"),
+            "total_trades": await conn.fetchval("SELECT COUNT(*) FROM trade_log"),
+        }
+
+    # Add optimization stats if using optimized pool
+    if db_optimizer:
+        try:
+            opt_stats = await db_optimizer.get_stats()
+            stats["optimization"] = opt_stats
+        except Exception as e:
+            logger.warning(f"Could not retrieve optimization stats: {e}")
+            stats["optimization"] = {"error": str(e)}
+    else:
+        stats["optimization"] = {"status": "Optimized pool not enabled (USE_OPTIMIZED_POOL=false)"}
+
+    return stats
 
 
 # ══════════════════════════════════════════════
