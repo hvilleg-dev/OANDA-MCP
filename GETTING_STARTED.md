@@ -207,35 +207,61 @@ DATABASE_URL=postgresql://username:password@localhost:5432/oanda_mcp
 ### If You Chose OPTION 1 (Quick Start - No Database)
 
 #### Method 1A: Python (Recommended)
+
+**Linux/macOS:**
 ```bash
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Run server
 python server.py
-
-# You should see:
-# INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-✅ That's it! Server is running without database.
+**Windows (PowerShell):**
+```powershell
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run server
+python server.py
+```
+
+You should see:
+```
+INFO:     Started server process [XXXX]
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+✅ Server is ready! Access it at **http://localhost:8000**
 
 #### Method 1B: Docker (if you prefer)
-```bash
-# Build Docker image
-docker build -t oanda-mcp .
 
-# Run container (without database)
+**Build image:**
+```bash
+docker build -t oanda-mcp .
+```
+
+**Run container:**
+```bash
 docker run -p 8000:8000 \
   -e OANDA_API_KEY="your_key_here" \
   -e OANDA_ACCOUNT_ID="your_account_id" \
   -e OANDA_ENVIRONMENT="practice" \
-  -e DATABASE_URL="" \
   oanda-mcp
+```
+
+**Or use docker-compose (simpler):**
+```bash
+# Edit .env first with your credentials
+docker-compose up
 ```
 
 ---
@@ -299,7 +325,40 @@ curl http://localhost:8000/health
 # }
 ```
 
-### Test 2: Open Swagger Documentation
+### Test 2: Open Dashboard
+
+**Important:** Use HTTP URL, not file path!
+
+Visit: [http://localhost:8000/dashboard](http://localhost:8000/dashboard)
+
+You should see:
+- Account balance, margin, P&L in real-time
+- Tabs for Trades, Orders, Recent Activity
+- Charts and live updates
+
+❌ **Don't use:** `file:///path/to/dashboard.html` (won't connect to server)  
+✅ **Use:** `http://localhost:8000/dashboard` (connects to live server)
+
+#### ⚠️ Dashboard Without Database
+
+When using **Quick Start (no database)**, some dashboard tabs will show "Database unavailable":
+- ❌ Requests Log — requires database
+- ❌ Orders Log — requires database
+- ❌ Trade Log — requires database
+- ❌ Error Log — requires database
+
+But these tabs work fine:
+- ✅ Overview — account summary
+- ✅ Trades — live open trades
+- ✅ Orders — live pending orders
+- ✅ Positions — live positions
+
+**To enable ALL dashboard features**, use Docker Compose instead:
+```bash
+docker-compose up
+```
+
+### Test 3: Open API Documentation
 
 Visit: [http://localhost:8000/docs](http://localhost:8000/docs)
 
@@ -307,15 +366,6 @@ You should see:
 - Blue "Execute" buttons next to each endpoint
 - Account, Orders, Trades, Positions, etc. sections
 - Try it out! Click **GET /account** → **"Try it out"** → **"Execute"**
-
-### Test 3: Open Dashboard
-
-Visit: [http://localhost:8000/dashboard](http://localhost:8000/dashboard)
-
-You should see:
-- Account balance, margin, P&L
-- Tabs for Trades, Orders, Recent Activity
-- Charts and tables
 
 ---
 
@@ -577,14 +627,51 @@ See `DEPLOYMENT.md` for cloud deployment (Railway, Render, AWS)
 
 ---
 
+## Quick Commands Reference 🚀
+
+### Start Server
+
+**Python (Windows PowerShell):**
+```powershell
+cd D:\prueba\OANDA-MCP
+.\venv\Scripts\Activate.ps1
+python server.py
+```
+
+**Python (macOS/Linux):**
+```bash
+cd ~/oanda-mcp
+source venv/bin/activate
+python server.py
+```
+
+**Docker:**
+```bash
+docker-compose up
+```
+
+### Stop Server
+```bash
+# Press Ctrl+C in the terminal
+```
+
+### Access Services
+```
+Dashboard:    http://localhost:8000/dashboard
+Swagger Docs: http://localhost:8000/docs
+Health Check: http://localhost:8000/health
+```
+
+---
+
 ## Congratulations! 🎉
 
 You now have a production-grade OANDA trading server integrated with Claude AI.
 
 **What to do next:**
-- ✅ Explore the dashboard
-- ✅ Try a few API calls
-- ✅ Test in Claude with small orders
+- ✅ Explore the dashboard at http://localhost:8000/dashboard
+- ✅ Try a few API calls at http://localhost:8000/docs
+- ✅ Test in Claude Desktop with the MCP tools
 - ✅ Read the full documentation
 - ✅ Build something awesome!
 

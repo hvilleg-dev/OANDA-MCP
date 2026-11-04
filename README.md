@@ -50,33 +50,61 @@ OANDA MCP Server is a comprehensive REST API and MCP (Model Context Protocol) im
 
 ## Quick Start
 
-### Installation
+### Option 1: Python (Fastest)
 
+**1. Create virtual environment:**
+```bash
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+```
+
+**2. Configure `.env`:**
+```bash
+cp .env.example .env
+# Edit .env with your OANDA credentials
+```
+
+**3. Install & Run:**
 ```bash
 pip install -r requirements.txt
-```
-
-### Configuration
-
-```bash
-export OANDA_API_KEY="your-api-key"
-export OANDA_ACCOUNT_ID="your-account-id"
-export OANDA_ENVIRONMENT="practice"  # or "live"
-```
-
-### Run Server
-
-```bash
 python server.py
 ```
 
-### Access Documentation
+### Option 2: Docker
 
-- **Interactive Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
-- **OpenAPI Spec:** http://localhost:8000/openapi.json
-- **Database Stats:** http://localhost:8000/db-stats (if using database)
-- **System Metrics:** http://localhost:8000/metrics
+**1. Build image:**
+```bash
+docker build -t oanda-mcp .
+```
+
+**2. Run container:**
+```bash
+docker run -p 8000:8000 \
+  -e OANDA_API_KEY="your-key" \
+  -e OANDA_ACCOUNT_ID="your-account" \
+  -e OANDA_ENVIRONMENT="practice" \
+  oanda-mcp
+```
+
+### Option 3: Docker Compose (Recommended)
+
+```bash
+docker-compose up
+```
+
+### Access Dashboard & Documentation
+
+| Tool | URL | Format |
+|------|-----|--------|
+| **Dashboard** | http://localhost:8000/dashboard | HTML (visual) — Live data only |
+| **Swagger UI** | http://localhost:8000/docs | HTML (interactive) — API documentation |
+| **ReDoc** | http://localhost:8000/redoc | HTML — Alternative API docs |
+| **Metrics** | http://localhost:8000/metrics | JSON — Performance stats (no DB) |
+| **OpenAPI Spec** | http://localhost:8000/openapi.json | JSON — Machine-readable API |
+| **Health Check** | http://localhost:8000/health | JSON — Server status |
 
 ---
 
@@ -88,8 +116,12 @@ The server works **with or without a database**:
 - Leave `DATABASE_URL` empty
 - Server runs immediately
 - No audit trail stored
+- Dashboard works for live data (Trades, Orders, Positions) ✅
+- Dashboard audit logs unavailable ❌
 - Perfect for development and testing
-- **Fastest setup**
+- **Fastest setup (2 minutes)**
+
+**Trade-off:** Missing request/audit logs, but all trading features work.
 
 ### 🏢 With Database (Optional)
 - Set `DATABASE_URL` to PostgreSQL connection string
@@ -98,7 +130,9 @@ The server works **with or without a database**:
   - All orders created/rejected
   - All trades opened/closed
   - All errors
+- Full dashboard with all tabs enabled ✅
 - Perfect for production and compliance
+- Use `docker-compose up` for automatic setup
 
 **See [GETTING_STARTED.md](GETTING_STARTED.md) for detailed setup instructions.**
 
