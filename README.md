@@ -75,8 +75,32 @@ python server.py
 - **Interactive Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
 - **OpenAPI Spec:** http://localhost:8000/openapi.json
-- **Database Stats:** http://localhost:8000/db-stats
+- **Database Stats:** http://localhost:8000/db-stats (if using database)
 - **System Metrics:** http://localhost:8000/metrics
+
+---
+
+## Database (Optional)
+
+The server works **with or without a database**:
+
+### 🚀 Without Database (Default)
+- Leave `DATABASE_URL` empty
+- Server runs immediately
+- No audit trail stored
+- Perfect for development and testing
+- **Fastest setup**
+
+### 🏢 With Database (Optional)
+- Set `DATABASE_URL` to PostgreSQL connection string
+- Full audit trail of all operations:
+  - All HTTP requests
+  - All orders created/rejected
+  - All trades opened/closed
+  - All errors
+- Perfect for production and compliance
+
+**See [GETTING_STARTED.md](GETTING_STARTED.md) for detailed setup instructions.**
 
 ---
 

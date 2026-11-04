@@ -67,6 +67,73 @@ Environment:  practice  (for demo account)
 
 ---
 
+## ⚠️ Important: Choose Your Setup Type
+
+Before proceeding, choose ONE of these options:
+
+### 🚀 **OPTION 1: Quick Start (No Database)**
+**Perfect for:** Testing locally, development, quick experiments
+
+**Requirements:**
+- Python 3.11+
+- OANDA API credentials
+- ❌ PostgreSQL NOT required
+
+**What you get:**
+- Server running immediately
+- Full trading functionality
+- No audit trail (orders/errors not stored)
+- Fastest setup (2 minutes)
+
+**When to use this:**
+- First time trying the tool
+- Learning how it works
+- Testing trades
+- Development environment
+
+---
+
+### 🏢 **OPTION 2: Full Setup (With Database)**
+**Perfect for:** Production use, audit trail required, tracking all orders
+
+**Requirements:**
+- Python 3.11+ OR Docker
+- OANDA API credentials
+- PostgreSQL database (local or Docker)
+
+**What you get:**
+- Server running with full functionality
+- Audit trail stored in database:
+  - All HTTP requests logged
+  - All orders tracked
+  - All errors recorded
+  - Full history for compliance
+- Professional setup
+
+**When to use this:**
+- Production environments
+- Compliance requirements
+- Need historical records
+- Real money trading
+
+---
+
+## What Gets Stored in the Database?
+
+If you choose Option 2, the database stores ONLY audit information:
+
+| Table | Contains |
+|-------|----------|
+| `request_log` | Every HTTP request to the server (method, path, status, duration) |
+| `order_log` | Every order created (type, instrument, units, status, OANDA response) |
+| `trade_log` | Every trade action like close (trade ID, profit/loss, details) |
+| `error_log` | Every error that occurs (error code, message, stack trace) |
+| `audit_log` | Sensitive operations audit trail |
+
+**Important:** The database is OPTIONAL. The server works perfectly fine without it.
+
+---
+
 ## Step 3: Clone Repository 📦
 
 ```bash
@@ -92,16 +159,41 @@ cp .env.example .env
 # Use your favorite editor (nano, vim, VS Code, etc.)
 ```
 
-### Fill in `.env`
+### Fill in `.env` - Required Fields
+
+These are ALWAYS required:
 
 ```bash
-# Paste your credentials here:
+# Your OANDA credentials (from Step 2)
 OANDA_API_KEY=1234567890abcdef1234567890abcdef-1234567890abcdef1234567890abcdef
 OANDA_ACCOUNT_ID=001-011-5838423-001
-OANDA_ENVIRONMENT=practice
 
-# Leave DATABASE_URL as-is if using Docker Compose
+# Environment: 'practice' (demo money) or 'live' (real money)
+# The URLs are automatically set based on this:
+#  - practice → https://api-fxpractice.oanda.com
+#  - live     → https://api-fxtrade.oanda.com
+OANDA_ENVIRONMENT=practice
+```
+
+### Fill in `.env` - Database (Choose Based on Your Option)
+
+**If you chose OPTION 1 (Quick Start - No Database):**
+```bash
+# Leave empty - server will work without database
+DATABASE_URL=
+```
+
+**If you chose OPTION 2 (Full Setup - With Database):**
+
+If using **Docker Compose:**
+```bash
 DATABASE_URL=postgresql://oanda:oanda@db:5432/oanda_mcp
+```
+
+If using **Local PostgreSQL:**
+```bash
+# Replace with your actual PostgreSQL credentials
+DATABASE_URL=postgresql://username:password@localhost:5432/oanda_mcp
 ```
 
 ✅ **Never commit `.env` to Git!** It's already in `.gitignore`.
@@ -110,23 +202,11 @@ DATABASE_URL=postgresql://oanda:oanda@db:5432/oanda_mcp
 
 ## Step 5: Start Server 🚀
 
-### Option A: Docker Compose (Easiest)
+**Choose the startup method that matches your setup:**
 
-```bash
-# Start all services (server + database)
-docker-compose up -d
+### If You Chose OPTION 1 (Quick Start - No Database)
 
-# Verify services are running
-docker ps
-# Should show: oanda-db, oanda-mcp-server
-
-# Check logs
-docker-compose logs -f oanda-mcp-server
-# Wait for: "Iniciando servidor en puerto 8000"
-```
-
-### Option B: Local Python
-
+#### Method 1A: Python (Recommended)
 ```bash
 # Create virtual environment
 python -m venv venv
@@ -140,6 +220,65 @@ python server.py
 
 # You should see:
 # INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+✅ That's it! Server is running without database.
+
+#### Method 1B: Docker (if you prefer)
+```bash
+# Build Docker image
+docker build -t oanda-mcp .
+
+# Run container (without database)
+docker run -p 8000:8000 \
+  -e OANDA_API_KEY="your_key_here" \
+  -e OANDA_ACCOUNT_ID="your_account_id" \
+  -e OANDA_ENVIRONMENT="practice" \
+  -e DATABASE_URL="" \
+  oanda-mcp
+```
+
+---
+
+### If You Chose OPTION 2 (Full Setup - With Database)
+
+#### Method 2A: Docker Compose (Recommended)
+```bash
+# Start all services (server + database + all dependencies)
+docker-compose up -d
+
+# Verify services are running
+docker ps
+# Should show: oanda_mcp_db and oanda_mcp_server
+
+# Check server logs
+docker-compose logs -f oanda_mcp_server
+# Wait for: "INFO:     Uvicorn running on http://0.0.0.0:8000"
+
+# Check database initialization
+docker-compose logs oanda_mcp_db
+```
+
+#### Method 2B: Python + Local PostgreSQL
+```bash
+# FIRST: Ensure PostgreSQL is running locally
+# macOS: brew services start postgresql
+# Linux: sudo systemctl start postgresql
+# Windows: Start PostgreSQL service
+
+# THEN: Setup Python environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run server (it will initialize the database on startup)
+python server.py
+
+# You should see:
+# INFO:     Uvicorn running on http://0.0.0.0:8000
+# Database initialized (with audit tables created)
 ```
 
 ---

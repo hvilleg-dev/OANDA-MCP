@@ -179,7 +179,8 @@ class MITOrderRequest(BaseModel):
 OANDA_API_KEY     = os.getenv("OANDA_API_KEY")
 OANDA_ACCOUNT_ID  = os.getenv("OANDA_ACCOUNT_ID")
 OANDA_ENVIRONMENT = os.getenv("OANDA_ENVIRONMENT", "practice").strip().lower()
-DATABASE_URL      = os.getenv("DATABASE_URL", "postgresql://oanda:oanda@db:5432/oanda_mcp")
+# DATABASE_URL is optional. Leave empty for development without audit trail
+DATABASE_URL      = os.getenv("DATABASE_URL", "").strip() or None
 
 # Circuit breaker configuration
 CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", 5))
@@ -388,6 +389,15 @@ def parse_v20_error(e: V20Error) -> Dict[str, Any]:
 async def lifespan(app: FastAPI):
     global db_pool, db_optimizer, logging_service
 
+    # Check if DATABASE_URL is configured
+    if not DATABASE_URL:
+        logger.info("Database not configured (DATABASE_URL is empty). Server running without audit logging.")
+        # Initialize logging without database
+        logging_service = LoggingService(config=logging_config, db_pool=None, force_reinit=True)
+        logging_service.logger.info("Logging service initialized without database pool")
+        yield
+        return
+
     for i in range(5):
         try:
             if use_optimized_pool:
@@ -406,7 +416,7 @@ async def lifespan(app: FastAPI):
                 logger.info("PostgreSQL standard pool initialized.")
 
             await init_db(db_pool)
-            logger.info("PostgreSQL connection established.")
+            logger.info("PostgreSQL connection established. Audit logging enabled.")
 
             # Re-initialize logging service with database pool
             logging_service = LoggingService(config=logging_config, db_pool=db_pool, force_reinit=True)
@@ -418,7 +428,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"PostgreSQL unavailable ({i+1}/5): {e}")
             await asyncio.sleep(3)
     else:
-        logger.error("Could not connect to PostgreSQL. Server continues without DB logging.")
+        logger.error("Could not connect to PostgreSQL. Server continues without database logging (only file/console logging).")
 
     yield
 
