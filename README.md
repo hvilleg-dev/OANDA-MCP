@@ -17,7 +17,7 @@ OANDA MCP Server is a comprehensive REST API and MCP (Model Context Protocol) im
 
 - **7 MCP Tools** (37 actions) compatible with Claude Desktop
 - **35+ REST endpoints** with full OpenAPI documentation
-- **Production-grade resilience**: Circuit breaker, rate limiting, input validation
+- **Production-grade resilience**: Rate limiting, input validation, error handling
 - **Production monitoring**: Enhanced logging, database optimization
 - **Developer experience**: Interactive Swagger UI, ReDoc, OpenAPI spec
 - **Zero external dependencies**: Pure stdlib implementation
@@ -25,9 +25,9 @@ OANDA MCP Server is a comprehensive REST API and MCP (Model Context Protocol) im
 ### Key Features
 
 ✅ **Resilience Layer**
-- Circuit breaker with exponential backoff and auto-recovery
 - Per-endpoint rate limiting (token bucket algorithm)
 - Comprehensive input validation with HTTP 422 responses
+- Robust error handling and V20Error catching
 
 ✅ **Production Features**
 - Structured JSON logging with correlation IDs
@@ -116,11 +116,11 @@ The server works **with or without a database**:
 ### Resilience Pattern
 
 ```
-Request → [Validator] → [RateLimit Check] → [CircuitBreaker] → OANDA API
-          (pre-flight)  (rate limiting)    (resilience)
+Request → [Validator] → [RateLimit Check] → OANDA API
+          (pre-flight)  (rate limiting)    
 
-Response ← [CircuitBreaker] ← [Rate Limit Headers] ← OANDA API
-           (state tracking)  (X-RateLimit-*)
+Response ← [Rate Limit Headers] ← OANDA API
+           (X-RateLimit-*)
 ```
 
 ---
@@ -130,7 +130,7 @@ Response ← [CircuitBreaker] ← [Rate Limit Headers] ← OANDA API
 ### Health Checks
 - `GET /` — Health check
 - `GET /health` — Detailed server status
-- `GET /metrics` — Circuit breaker + logging metrics
+- `GET /metrics` — Logging and performance metrics
 - `GET /db-stats` — Database pool statistics
 
 ### Account Management
@@ -209,11 +209,6 @@ OANDA_ENVIRONMENT=practice  # or "live"
 # Optional - Database (logging)
 DATABASE_URL=postgresql://user:pass@localhost/oanda_mcp
 
-# Optional - Resilience
-CIRCUIT_BREAKER_THRESHOLD=5          # Failures before OPEN
-CIRCUIT_BREAKER_TIMEOUT=60           # Seconds in OPEN state
-RETRY_BACKOFF_MULTIPLIER=100         # Exponential backoff base
-
 # Optional - Database Optimization
 USE_OPTIMIZED_POOL=true
 DB_POOL_MIN_SIZE=5
@@ -235,9 +230,6 @@ Run the comprehensive test suite:
 # All tests
 pytest tests/ -v
 
-# Specific test file
-pytest tests/test_circuit_breaker.py -v
-
 # With coverage report
 pytest tests/ --cov=. --cov-report=html
 ```
@@ -245,17 +237,11 @@ pytest tests/ --cov=. --cov-report=html
 Test statistics:
 - **379 tests** (100% passing)
 - **21.72 seconds** total runtime
-- **All components tested**: Circuit Breaker, Validators, Rate Limiter, Logging, Database, Documentation
+- **All components tested**: Validators, Rate Limiter, Logging, Database, Documentation
 
 ---
 
 ## Production Features
-
-### Circuit Breaker Pattern
-- Automatic recovery from transient failures
-- Exponential backoff (2^n × 100ms, max 60s)
-- State machine: CLOSED → OPEN → HALF_OPEN → CLOSED
-- Real-time monitoring via `/metrics`
 
 ### Rate Limiting
 - Token bucket algorithm

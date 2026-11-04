@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull request template
 - Branch protection rules
 
+## [4.1.0] - 2026-11-03
+
+### Added
+- `load_dotenv()` for improved local development support
+- Comprehensive endpoint testing suite (30+ endpoints validated)
+
+### Removed
+- Circuit breaker implementation (incompatible with synchronous OANDA client)
+  - Reason: circuit_breaker.call() is async but oandapyV20.API.request() is synchronous
+  - Impact: Removed 35 await calls and related error handlers
+  - Trade-off: Simpler codebase with direct error propagation
+
+### Changed
+- Improved OANDA API client integration with direct synchronous calls
+- All 35+ REST endpoints now functioning without async/await wrapper overhead
+
 ## [4.0.0] - 2026-11-03
 
 ### Added

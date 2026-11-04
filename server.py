@@ -6,6 +6,9 @@ import asyncpg
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,9 +22,6 @@ from oandapyV20.endpoints import (
 from oandapyV20.exceptions import V20Error
 import uvicorn
 import logging
-
-# Circuit breaker imports
-from src.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
 # Database optimization imports
 from src.db_optimizer import OptimizedConnectionPool, create_optimized_pool
@@ -179,8 +179,7 @@ class MITOrderRequest(BaseModel):
 OANDA_API_KEY     = os.getenv("OANDA_API_KEY")
 OANDA_ACCOUNT_ID  = os.getenv("OANDA_ACCOUNT_ID")
 OANDA_ENVIRONMENT = os.getenv("OANDA_ENVIRONMENT", "practice").strip().lower()
-# DATABASE_URL is optional. Leave empty for development without audit trail
-DATABASE_URL      = os.getenv("DATABASE_URL", "").strip() or None
+DATABASE_URL      = os.getenv("DATABASE_URL", "postgresql://oanda:oanda@db:5432/oanda_mcp")
 
 # Circuit breaker configuration
 CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", 5))
@@ -199,13 +198,6 @@ else:
 
 oanda_client = API(access_token=OANDA_API_KEY, environment=OANDA_ENVIRONMENT)
 stream_client = API(access_token=OANDA_API_KEY, environment=OANDA_ENVIRONMENT)  # dedicated client for SSE streaming
-
-# Initialize circuit breaker
-circuit_breaker = CircuitBreaker(
-    failure_threshold=CIRCUIT_BREAKER_THRESHOLD,
-    recovery_timeout=CIRCUIT_BREAKER_TIMEOUT,
-    backoff_multiplier=CIRCUIT_BREAKER_BACKOFF_MULTIPLIER
-)
 
 # ──────────────────────────────────────────────
 # Pool PostgreSQL
@@ -389,15 +381,6 @@ def parse_v20_error(e: V20Error) -> Dict[str, Any]:
 async def lifespan(app: FastAPI):
     global db_pool, db_optimizer, logging_service
 
-    # Check if DATABASE_URL is configured
-    if not DATABASE_URL:
-        logger.info("Database not configured (DATABASE_URL is empty). Server running without audit logging.")
-        # Initialize logging without database
-        logging_service = LoggingService(config=logging_config, db_pool=None, force_reinit=True)
-        logging_service.logger.info("Logging service initialized without database pool")
-        yield
-        return
-
     for i in range(5):
         try:
             if use_optimized_pool:
@@ -416,7 +399,7 @@ async def lifespan(app: FastAPI):
                 logger.info("PostgreSQL standard pool initialized.")
 
             await init_db(db_pool)
-            logger.info("PostgreSQL connection established. Audit logging enabled.")
+            logger.info("PostgreSQL connection established.")
 
             # Re-initialize logging service with database pool
             logging_service = LoggingService(config=logging_config, db_pool=db_pool, force_reinit=True)
@@ -428,7 +411,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"PostgreSQL unavailable ({i+1}/5): {e}")
             await asyncio.sleep(3)
     else:
-        logger.error("Could not connect to PostgreSQL. Server continues without database logging (only file/console logging).")
+        logger.error("Could not connect to PostgreSQL. Server continues without DB logging.")
 
     yield
 
@@ -594,16 +577,16 @@ async def health_check():
     """
     try:
         r = accounts.AccountDetails(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         a = r.response["account"]
         return {"status": "healthy", "oanda_connection": "ok",
                 "db_connection": "ok" if db_pool else "unavailable",
                 "environment": OANDA_ENVIRONMENT,
                 "mode": "LIVE" if OANDA_ENVIRONMENT == "live" else "PRACTICE",
                 "currency": a.get("currency"), "balance": a.get("balance"),
-                "circuit_breaker_state": circuit_breaker.get_state().value}
+                "circuit_breaker_state": "REMOVED"}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e), "circuit_breaker_state": circuit_breaker.get_state().value}
+        return {"status": "unhealthy", "error": str(e), "circuit_breaker_state": "REMOVED"}
 
 
 @app.get("/metrics", tags=["Health"], summary="System Metrics")
@@ -625,7 +608,7 @@ async def get_metrics():
     - Detect when system is recovering
     """
     return {
-        "circuit_breaker": circuit_breaker.get_metrics(),
+        "circuit_breaker": {"note": "circuit_breaker removed for compatibility"},
         "logging": logging_service.get_metrics_summary(),
         "environment": OANDA_ENVIRONMENT,
         "mode": "LIVE" if OANDA_ENVIRONMENT == "live" else "PRACTICE",
@@ -665,10 +648,8 @@ async def get_account_info():
     """
     try:
         r = accounts.AccountDetails(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         err = parse_v20_error(e)
         if db_pool: asyncio.ensure_future(log_error(db_pool,"GET","/account",err["errorCode"],err["errorMessage"],err["rejectReason"],None,err["raw"]))
@@ -702,10 +683,8 @@ async def get_account_summary():
     """
     try:
         r = accounts.AccountSummary(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -744,10 +723,8 @@ async def get_account_instruments(
     try:
         params = {"instruments": instruments} if instruments else {}
         r = accounts.AccountInstruments(accountID=OANDA_ACCOUNT_ID, params=params or None)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -849,10 +826,8 @@ async def get_candles(
             # Without "from": count only, never send includeFirst
             params["count"] = str(min(count, 5000))
         r = instruments.InstrumentsCandles(instrument=instrument, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -863,10 +838,8 @@ async def get_candles(
 async def get_orderbook(instrument: str, time: Optional[str] = Query(None)):
     try:
         r = instruments.InstrumentsOrderBook(instrument=instrument, params={"time": time} if time else {})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -877,10 +850,8 @@ async def get_orderbook(instrument: str, time: Optional[str] = Query(None)):
 async def get_positionbook(instrument: str, time: Optional[str] = Query(None)):
     try:
         r = instruments.InstrumentsPositionBook(instrument=instrument, params={"time": time} if time else {})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -932,10 +903,8 @@ async def get_current_price(instrument: str):
             raise handle_validation_error(str(e))
 
         r = pricing.PricingInfo(accountID=OANDA_ACCOUNT_ID, params={"instruments": instrument})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -992,10 +961,8 @@ async def get_multiple_prices(
         if since:                           params["since"]                  = since
         if includeHomeConversions:          params["includeHomeConversions"] = "true"
         r = pricing.PricingInfo(accountID=OANDA_ACCOUNT_ID, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1085,10 +1052,8 @@ async def get_orders(
         if ids:        params["ids"]        = ids
         if beforeID:   params["beforeID"]   = beforeID
         r = orders.OrderList(accountID=OANDA_ACCOUNT_ID, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={"errorMessage": str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1099,10 +1064,8 @@ async def get_orders(
 async def get_pending_orders():
     try:
         r = orders.OrdersPending(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1113,10 +1076,8 @@ async def get_pending_orders():
 async def get_order_details(order_id: str):
     try:
         r = orders.OrderDetails(accountID=OANDA_ACCOUNT_ID, orderID=order_id)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1172,7 +1133,7 @@ async def _place_order(req: Dict[str, Any], order_type: str, request: Request):
     payload = _build_order_payload(req, order_type)
     try:
         r = orders.OrderCreate(accountID=OANDA_ACCOUNT_ID, data=payload)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         resp = r.response
 
         status         = "FILLED"   if "orderFillTransaction"   in resp else \
@@ -1199,8 +1160,6 @@ async def _place_order(req: Dict[str, Any], order_type: str, request: Request):
 
     except HTTPException:
         raise
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         err = parse_v20_error(e)
         if db_pool:
@@ -1320,7 +1279,7 @@ async def modify_order(order_id: str, order_update: ModifyOrderRequest):
         # OANDA OrderReplace requires the original order type in the body
         # Get current order to obtain it
         r_detail = orders.OrderDetails(accountID=OANDA_ACCOUNT_ID, orderID=order_id)
-        await circuit_breaker.call(oanda_client.request, r_detail)
+        oanda_client.request(r_detail)
         original = r_detail.response.get("order", {})
         order_type = original.get("type", "LIMIT")
 
@@ -1346,10 +1305,8 @@ async def modify_order(order_id: str, order_update: ModifyOrderRequest):
             order_body["takeProfitOnFill"] = original["takeProfitOnFill"]
 
         r = orders.OrderReplace(accountID=OANDA_ACCOUNT_ID, orderID=order_id, data={"order": order_body})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1360,10 +1317,8 @@ async def modify_order(order_id: str, order_update: ModifyOrderRequest):
 async def cancel_order(order_id: str):
     try:
         r = orders.OrderCancel(accountID=OANDA_ACCOUNT_ID, orderID=order_id)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1386,10 +1341,8 @@ async def get_trades(state: str = Query("OPEN"),
         if ids:       params["ids"] = ids          # CSV: "1,2,3"
         if beforeID:  params["beforeID"] = beforeID
         r = trades.TradesList(accountID=OANDA_ACCOUNT_ID, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1401,10 +1354,8 @@ async def get_trades(state: str = Query("OPEN"),
 async def get_open_trades():
     try:
         r = trades.OpenTrades(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1416,10 +1367,8 @@ async def get_open_trades():
 async def get_trade_details(trade_id: str):
     try:
         r = trades.TradeDetails(accountID=OANDA_ACCOUNT_ID, tradeID=trade_id)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1511,10 +1460,8 @@ async def modify_trade(trade_id: str, trade_update: ModifyTradeRequest):
             raise HTTPException(status_code=400,
                 detail={"errorMessage": "Must send at least stop_loss, take_profit or trailing_stop"})
         r = trades.TradeCRCDO(accountID=OANDA_ACCOUNT_ID, tradeID=trade_id, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1538,7 +1485,7 @@ async def close_trade(trade_id: str, body: CloseTradeRequest = CloseTradeRequest
         else:
             data = {}  # OANDA default: closes ALL units
         r = trades.TradeClose(accountID=OANDA_ACCOUNT_ID, tradeID=trade_id, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         resp = r.response
         if db_pool:
             fill = resp.get("orderFillTransaction", {})
@@ -1547,8 +1494,6 @@ async def close_trade(trade_id: str, body: CloseTradeRequest = CloseTradeRequest
                 fill.get("units"), fill.get("price"), fill.get("pl"),
                 {"tradeID": trade_id, "units": units or "ALL"}, resp))
         return resp
-    except CircuitBreakerOpenError as e:
-        raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
     except Exception as e:
@@ -1563,10 +1508,8 @@ async def close_trade(trade_id: str, body: CloseTradeRequest = CloseTradeRequest
 async def get_all_positions():
     try:
         r = positions.PositionList(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1578,10 +1521,8 @@ async def get_all_positions():
 async def get_open_positions():
     try:
         r = positions.OpenPositions(accountID=OANDA_ACCOUNT_ID)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1593,10 +1534,8 @@ async def get_open_positions():
 async def get_position_detail(instrument: str):
     try:
         r = positions.PositionDetails(accountID=OANDA_ACCOUNT_ID, instrument=instrument)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1613,7 +1552,7 @@ async def close_position(instrument: str, body: ClosePositionRequest = ClosePosi
         # Query current position to determine which sides exist
         pos_req = positions.PositionDetails(accountID=OANDA_ACCOUNT_ID, instrument=instrument)
         try:
-            await circuit_breaker.call(oanda_client.request, pos_req)
+            oanda_client.request(pos_req)
             pos = pos_req.response.get("position", {})
             long_units  = float(pos.get("long",  {}).get("units", "0"))
             short_units = float(pos.get("short", {}).get("units", "0"))
@@ -1650,10 +1589,8 @@ async def close_position(instrument: str, body: ClosePositionRequest = ClosePosi
                     detail={"errorMessage": f"No open positions in {instrument}"})
 
         r = positions.PositionClose(accountID=OANDA_ACCOUNT_ID, instrument=instrument, data=close_data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1678,10 +1615,8 @@ async def get_transactions(
         if to_time:   params["to"]   = to_time
         if type:      params["type"] = type
         r = transactions.TransactionList(accountID=OANDA_ACCOUNT_ID, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1693,10 +1628,8 @@ async def get_transactions(
 async def get_transaction_detail(transaction_id: str):
     try:
         r = transactions.TransactionDetails(accountID=OANDA_ACCOUNT_ID, transactionID=transaction_id)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1711,10 +1644,8 @@ async def get_transactions_by_range(from_id: str = Query(...), to_id: str = Quer
         params: Dict[str, Any] = {"from": from_id, "to": to_id}
         if type: params["type"] = type
         r = transactions.TransactionIDRange(accountID=OANDA_ACCOUNT_ID, params=params)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1726,10 +1657,8 @@ async def get_transactions_by_range(from_id: str = Query(...), to_id: str = Quer
 async def get_transactions_since(transaction_id: str):
     try:
         r = transactions.TransactionsSinceID(accountID=OANDA_ACCOUNT_ID, params={"id": transaction_id})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1755,10 +1684,8 @@ async def configure_account(body: AccountConfigRequest):
         if not data:
             raise HTTPException(status_code=400, detail={"errorMessage": "Provide alias or marginRate"})
         r = accounts.AccountConfiguration(accountID=OANDA_ACCOUNT_ID, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1777,10 +1704,8 @@ async def get_account_changes(sinceTransactionID: str = Query(..., description="
     try:
         r = accounts.AccountChanges(accountID=OANDA_ACCOUNT_ID,
                                      params={"sinceTransactionID": sinceTransactionID})
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1912,10 +1837,8 @@ async def update_order_client_extensions(order_id: str, body: ClientExtensionsRe
         if body.clientExtensions:      data["clientExtensions"]      = body.clientExtensions
         if body.tradeClientExtensions: data["tradeClientExtensions"] = body.tradeClientExtensions
         r = orders.OrderClientExtensions(accountID=OANDA_ACCOUNT_ID, orderID=order_id, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1949,10 +1872,8 @@ async def set_trade_orders(trade_id: str, body: TradeOrdersRequest):
         if "guaranteedStopLoss" in body_dict:
             data["guaranteedStopLoss"] = body_dict["guaranteedStopLoss"]  # GSLO enabled accounts only
         r = trades.TradeCRCDO(accountID=OANDA_ACCOUNT_ID, tradeID=trade_id, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
@@ -1971,10 +1892,8 @@ async def update_trade_client_extensions(trade_id: str, body: ClientExtensionsRe
         data: Dict[str, Any] = {}
         if body.clientExtensions: data["clientExtensions"] = body.clientExtensions
         r = trades.TradeClientExtensions(accountID=OANDA_ACCOUNT_ID, tradeID=trade_id, data=data)
-        await circuit_breaker.call(oanda_client.request, r)
+        oanda_client.request(r)
         return r.response
-    except CircuitBreakerOpenError as e:
-         raise HTTPException(status_code=503, detail={'errorMessage': str(e)})
 
     except V20Error as e:
         raise HTTPException(status_code=400, detail=parse_v20_error(e))
