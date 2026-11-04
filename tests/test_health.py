@@ -50,7 +50,7 @@ class TestHealthEndpoints:
         # Check structure
         assert isinstance(data, dict)
         assert "status" in data
-        assert "circuit_breaker_state" in data
+        assert "circuit_breaker" in data
         assert "environment" in data or "mode" in data
 
     def test_health_endpoint_includes_environment_info(self, client):

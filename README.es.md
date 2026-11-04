@@ -3,8 +3,8 @@
 🚀 **Servidor Model Context Protocol (MCP) listo para producción para OANDA v20 Trading API**
 
 [![Licencia: GPL v3](https://img.shields.io/badge/Licencia-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-![Versión](https://img.shields.io/badge/versión-v4.0.0-brightgreen)
-![Tests](https://img.shields.io/badge/tests-379%2F379%20pasando-brightgreen)
+![Versión](https://img.shields.io/badge/versión-v4.2.0-brightgreen)
+![Tests](https://img.shields.io/badge/tests-391%2F391%20pasando-brightgreen)
 ![Cobertura](https://img.shields.io/badge/cobertura-100%25-brightgreen)
 
 **[English Documentation](./README.md)**

@@ -153,6 +153,24 @@
     <div class="stat-card"><div class="label">Closed Trades</div><div class="value v-purple" id="s-trades">…</div></div>
     <div class="stat-card"><div class="label">Errors</div><div class="value v-yellow" id="s-errors">…</div></div>
   </div>
+
+  <!-- Circuit Breaker Panel -->
+  <div id="cbPanel" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <span style="font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Circuit Breaker — OANDA API Protection</span>
+      <span id="cbStateBadge" class="badge by">…</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:12px;">
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Consecutive Fails</div><div class="value v-red" id="cbFailures" style="font-size:20px;font-weight:700;">—</div></div>
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Total Failures</div><div class="value v-yellow" id="cbTotalFails" style="font-size:20px;font-weight:700;">—</div></div>
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Total Calls</div><div class="value v-blue" id="cbTotalCalls" style="font-size:20px;font-weight:700;">—</div></div>
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Success Rate</div><div class="value v-green" id="cbSuccessRate" style="font-size:20px;font-weight:700;">—</div></div>
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Cooldown Left</div><div class="value" id="cbCooldown" style="font-size:20px;font-weight:700;">—</div></div>
+      <div><div style="color:var(--muted);font-size:11px;margin-bottom:3px;">Uptime</div><div class="value v-blue" id="cbUptime" style="font-size:20px;font-weight:700;">—</div></div>
+    </div>
+    <div id="cbEvents" style="font-size:12px;color:var(--muted);"></div>
+  </div>
+
   <div class="section-header"><h2><span class="live-dot"></span> Open Positions</h2></div>
   <div class="table-wrap" id="overviewPositions"><div class="loading">Loading…</div></div>
   <div class="section-header"><h2>Latest Orders</h2></div>
@@ -415,7 +433,7 @@ function tableSet(id, html) {
 }
 
 // ══════════════════════════════════════════════
-// HEALTH
+// HEALTH + CIRCUIT BREAKER
 // ══════════════════════════════════════════════
 async function loadHealth() {
   try {
@@ -424,8 +442,46 @@ async function loadHealth() {
     setEl('envBadge', env.toUpperCase(), true);
     document.getElementById('envBadge').className = 'env-badge env-' + env;
     document.getElementById('statusDot').style.background = h.status==='healthy' ? 'var(--green)' : 'var(--red)';
+    if (h.circuit_breaker) updateCBPanel(h.circuit_breaker);
   } catch(e) {
     document.getElementById('statusDot').style.background = 'var(--red)';
+  }
+}
+
+function updateCBPanel(cb) {
+  const state = cb.state || 'UNKNOWN';
+  const badge = document.getElementById('cbStateBadge');
+  if (badge) {
+    badge.textContent = state;
+    badge.className = 'badge ' + (state==='CLOSED'?'bg': state==='OPEN'?'br':'by');
+  }
+  const panel = document.getElementById('cbPanel');
+  if (panel) {
+    panel.style.borderColor = state==='CLOSED'?'var(--green)':state==='OPEN'?'var(--red)':'var(--yellow)';
+  }
+  setEl('cbFailures',    cb.failures ?? '—', true);
+  setEl('cbTotalFails',  cb.total_failures ?? '—', true);
+  setEl('cbTotalCalls',  cb.total_calls ?? '—', true);
+  const rate = cb.total_calls > 0 ? Math.round((cb.total_success / cb.total_calls) * 100) + '%' : '—';
+  setEl('cbSuccessRate', rate, true);
+  const coolEl = document.getElementById('cbCooldown');
+  if (coolEl) {
+    const s = cb.cooldown_remaining_s || 0;
+    coolEl.textContent = s > 0 ? s + 's' : (state==='OPEN' ? 'probing' : '—');
+    coolEl.className = 'value ' + (s > 0 ? 'v-red' : state==='HALF_OPEN' ? 'v-yellow' : 'v-green');
+  }
+  const up = cb.uptime_s || 0;
+  const upStr = up > 3600 ? (up/3600).toFixed(1)+'h' : up > 60 ? Math.floor(up/60)+'m' : Math.round(up)+'s';
+  setEl('cbUptime', upStr, true);
+  const evts = cb.recent_events || [];
+  if (evts.length) {
+    const rows = evts.slice(-5).reverse().map(e => {
+      const t = e.ts ? new Date(e.ts*1000).toLocaleTimeString('en') : '?';
+      return `<span style="margin-right:16px">${t} <b>${e.from}</b> → <b>${e.to}</b> (fails: ${e.failures})</span>`;
+    }).join('');
+    setEl('cbEvents', '<span style="margin-right:8px;color:var(--muted)">Events:</span>' + rows);
+  } else {
+    setEl('cbEvents', '<span style="color:var(--muted)">No state changes yet</span>');
   }
 }
 

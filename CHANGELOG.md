@@ -14,6 +14,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull request template
 - Branch protection rules
 
+## [4.2.0] - 2026-11-04
+
+### Added
+- **Circuit Breaker Pattern (Synchronous)** — Re-implemented as sync module
+  - States: CLOSED → OPEN → HALF_OPEN → CLOSED
+  - Thread-safe using threading.Lock()
+  - Configurable threshold (default 5) and cooldown (default 60s)
+  - Real-time metrics via `get_status()` for /health and /metrics endpoints
+  - 18 unit tests covering state transitions, concurrency, recovery
+- **Dashboard Circuit Breaker Panel** — Live monitoring in Overview tab
+  - State indicator with color-coding (green/red/yellow)
+  - Counters: consecutive fails, total failures, success rate
+  - Cooldown timer and recent state change events
+- **Graceful Server Shutdown** — Ctrl+C now exits cleanly
+  - Signal handlers for SIGINT/SIGTERM
+  - Timeouts on all async operations during shutdown
+  - Explicit uvicorn.Server control for better lifecycle management
+
+### Changed
+- /health endpoint returns full circuit_breaker object instead of state string
+- /health returns HTTP 503 when circuit breaker is OPEN
+- /metrics now returns actual circuit breaker status from get_status()
+- Improved DB connection retry logic with timeouts
+- Signal handling for clean process termination
+
+### Fixed
+- Server no longer hangs on Ctrl+C during database initialization
+- DB retry loops now timeout after 5s per attempt
+- Graceful shutdown logs "Application shutdown complete"
+- Rate limiter continues functioning alongside circuit breaker
+
+### Testing
+- 373/373 unit tests passing
+- 18/18 circuit breaker specific tests
+- Stress test: 200 concurrent requests → 69.5% correctly rate-limited
+- Clean shutdown verified under load
+
 ## [4.1.0] - 2026-11-03
 
 ### Added

@@ -553,15 +553,17 @@ def app_fixture_with_mocks():
         # Now import server
         import server
 
-        # Patch circuit breaker call to actually execute the function
-        async def mock_call(func, *args, **kwargs):
-            """Mock circuit breaker that just calls the function directly"""
-            result = func(*args, **kwargs)
-            return result
+        # Patch circuit breaker — synchronous: call() just delegates to func()
+        def mock_call(func, *args, **kwargs):
+            return func(*args, **kwargs)
 
-        server.circuit_breaker.call = AsyncMock(side_effect=mock_call)
-        server.circuit_breaker.get_state = MagicMock(return_value=MagicMock(value="CLOSED"))
-        server.circuit_breaker.get_metrics = MagicMock(return_value={"state": "CLOSED", "failures": 0})
+        server.circuit_breaker.call = MagicMock(side_effect=mock_call)
+        server.circuit_breaker.get_status = MagicMock(return_value={
+            "state": "CLOSED", "failures": 0, "total_failures": 0,
+            "total_calls": 0, "total_success": 0, "cooldown_remaining_s": 0,
+            "last_failure_at": None, "uptime_s": 0,
+            "threshold": 5, "cooldown_s": 60, "recent_events": [],
+        })
 
         # Setup mock db_pool for database endpoints
         mock_db_pool = MagicMock()

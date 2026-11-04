@@ -3,8 +3,8 @@
 🚀 **Production-ready Model Context Protocol (MCP) server for OANDA v20 Trading API**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-![Release](https://img.shields.io/badge/release-v4.1.0-brightgreen)
-![Tests](https://img.shields.io/badge/tests-379%2F379%20passing-brightgreen)
+![Release](https://img.shields.io/badge/release-v4.2.0-brightgreen)
+![Tests](https://img.shields.io/badge/tests-391%2F391%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 
 **[Documentación en Español](./README.es.md)**
@@ -25,9 +25,11 @@ OANDA MCP Server is a comprehensive REST API and MCP (Model Context Protocol) im
 ### Key Features
 
 ✅ **Resilience Layer**
+- **Circuit Breaker Pattern** (CLOSED/OPEN/HALF_OPEN) — Automatic failure recovery
 - Per-endpoint rate limiting (token bucket algorithm)
 - Comprehensive input validation with HTTP 422 responses
 - Robust error handling and V20Error catching
+- HTTP 503 when circuit breaker is OPEN (request rejected)
 
 ✅ **Production Features**
 - Structured JSON logging with correlation IDs
@@ -41,10 +43,12 @@ OANDA MCP Server is a comprehensive REST API and MCP (Model Context Protocol) im
 - Full endpoint documentation
 
 ✅ **Quality Assurance**
-- 379 comprehensive tests (100% passing)
+- 391 comprehensive tests (100% passing)
+  - 373 core tests + 18 circuit breaker tests
 - Zero external dependencies
 - Zero breaking changes
 - Production-grade code quality
+- Graceful shutdown on Ctrl+C
 
 ---
 
